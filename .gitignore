@@ -1,0 +1,18 @@
+# Sekrety - NIGDY nie commitować
+.env
+.env.*
+!.env.example
+
+# Wyniki analizy (mogą zawierać dane finansowe)
+raport/
+*.csv
+!przyklad_dodatkowe_przeplywy.csv
+price_cache.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/

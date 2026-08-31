@@ -1,0 +1,4 @@
+data;typ;moneta;ilosc;wartosc_usd
+2022-11-14;deposit;USDT;2500;
+2023-01-08;deposit;BTC;0.05;850.20
+2023-06-30;withdraw;USDT;1200;
