@@ -387,15 +387,20 @@ class Reporter:
 
     # ---------------------------------------------------------------- JSON
 
-    def export_json(self, path: Path) -> Path:
+    def payload(self) -> dict:
+        """Pełny wynik jako słownik - wspólne źródło dla JSON-a i panelu web."""
         a = self.analysis
-        payload = {
+        equity = self.data.equity
+        return {
             "zakres": {
                 "od": self.cfg.start.strftime("%Y-%m-%d"),
                 "do": self.cfg.end.strftime("%Y-%m-%d"),
             },
+            "waluta": {"etykieta": self.cfg.fx_label, "kurs": self.cfg.fx_rate},
             "wplaty_usdt": a.deposits_total,
             "wyplaty_usdt": a.withdrawals_total,
+            "liczba_wplat": len(self.data.deposits),
+            "liczba_wyplat": len(self.data.withdrawals),
             "wartosc_aktywow_usdt": a.equity_now,
             "wartosc_aktywow_wg_konta": a.equity_by_account,
             "realny_wynik_usdt": a.real_pnl,
@@ -410,6 +415,7 @@ class Reporter:
                 "earn_odsetki": a.earn_income_total,
                 "nagrody": a.rewards_total,
                 "pozostale": a.other_total,
+                "suma_wyjasniona": a.attributed_total + a.spot_unrealized,
                 "roznica_niewyjasniona": a.unexplained,
             },
             "miesiace": [
@@ -417,19 +423,54 @@ class Reporter:
                     "miesiac": m.month,
                     "wplaty": m.deposits,
                     "wyplaty": m.withdrawals,
+                    "kapital_netto": m.net_external,
                     "spot_zrealizowany": m.spot_realized,
+                    "spot_prowizje": m.spot_fees,
                     "futures_pnl": m.futures_pnl,
                     "futures_funding": m.futures_funding,
                     "futures_prowizje": m.futures_fees,
                     "earn_odsetki": m.earn_income,
+                    "nagrody": m.rewards,
+                    "pozostale": m.other,
                     "wynik_razem": m.attributed,
                 }
                 for m in a.months
             ],
+            "pary": [
+                {
+                    "para": item.symbol,
+                    "moneta": item.base,
+                    "zrealizowany_pnl": item.realized_pnl,
+                    "prowizje": item.fees,
+                    "transakcje": item.trades,
+                    "kupiono": item.bought_usd,
+                    "sprzedano": item.sold_usd,
+                    "bez_historii": item.uncovered_size,
+                }
+                for item in reversed(a.symbols)
+            ],
+            "transfery": {
+                "liczba": a.transfers_count,
+                "wolumen": a.transfers_volume,
+            },
+            "salda": equity.positions if equity else [],
+            "pokrycie": [
+                {
+                    "zrodlo": name,
+                    "rekordow": cov.records,
+                    "od": _stamp(cov.first_ts),
+                    "do": _stamp(cov.last_ts),
+                    "blad": cov.error,
+                }
+                for name, cov in sorted(self.data.coverage.items())
+            ],
+            "pary_bez_historii": a.uncovered_symbols,
             "ostrzezenia": self.data.warnings,
         }
+
+    def export_json(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            json.dumps(self.payload(), ensure_ascii=False, indent=2), encoding="utf-8"
         )
         return path

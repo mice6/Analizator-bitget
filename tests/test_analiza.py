@@ -140,29 +140,31 @@ def make_config(out_dir: Path) -> Config:
     )
 
 
+def build_dataset(cfg, client):
+    """Pobiera komplet danych ze sztucznego API - odpowiednik pipeline.run()."""
+    prices = PriceBook(client)
+    prices.load_symbols()
+    prices.load_current()
+
+    data = Dataset()
+    fetch_deposits(client, cfg, prices, data)
+    fetch_withdrawals(client, cfg, prices, data)
+    fetch_spot_bills(client, cfg, data)
+    fetch_futures_bills(client, cfg, data)
+    fetch_spot_fills(client, cfg, prices, data)
+    fetch_savings_history(client, cfg, data)
+    fetch_transfers(client, cfg, data, coins_seen(data))
+    fetch_equity(client, cfg, prices, data)
+
+    return data, Analyzer(data, prices).build(), prices
+
+
 class TestPipeline(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.cfg = make_config(Path(cls.tmp.name))
-        client = FakeClient(cls.cfg)
-        prices = PriceBook(client)
-        prices.load_symbols()
-        prices.load_current()
-
-        data = Dataset()
-        fetch_deposits(client, cls.cfg, prices, data)
-        fetch_withdrawals(client, cls.cfg, prices, data)
-        fetch_spot_bills(client, cls.cfg, data)
-        fetch_futures_bills(client, cls.cfg, data)
-        fetch_spot_fills(client, cls.cfg, prices, data)
-        fetch_savings_history(client, cls.cfg, data)
-        fetch_transfers(client, cls.cfg, data, coins_seen(data))
-        fetch_equity(client, cls.cfg, prices, data)
-
-        cls.data = data
-        cls.prices = prices
-        cls.analysis = Analyzer(data, prices).build()
+        cls.data, cls.analysis, cls.prices = build_dataset(cls.cfg, FakeClient(cls.cfg))
 
     @classmethod
     def tearDownClass(cls):

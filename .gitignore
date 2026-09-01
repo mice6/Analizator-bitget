@@ -3,6 +3,14 @@
 .env.*
 !.env.example
 
+# Zaszyfrowane klucze API i klucz szyfrujący trzymamy poza repozytorium
+# (~/.config/analizator-bitget), ale gdyby ktoś ustawił BITGET_ANALYZER_HOME
+# na katalog projektu - te wzorce i tak je złapią.
+*.enc
+key.bin
+credentials.enc
+dane/
+
 # Wyniki analizy (mogą zawierać dane finansowe)
 raport/
 *.csv

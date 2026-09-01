@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Analizator rentowności Bitget</title>
+<style>
+  :root {
+    --bg: #0f1319; --panel: #171d26; --panel-2: #1d2532; --line: #2a3444;
+    --text: #e6ebf2; --muted: #8f9cb0; --accent: #4a9eff; --accent-2: #2d7fd8;
+    --good: #3fbf7f; --bad: #ff6b6b; --warn: #ffb648;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 28px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -.2px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 80px; }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px 24px; margin-bottom: 20px;
+  }
+  section > h2 {
+    margin: 0 0 4px; font-size: 15px; font-weight: 650;
+    display: flex; align-items: center; gap: 10px;
+  }
+  section > .hint { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; letter-spacing: .3px; }
+  input, select {
+    width: 100%; padding: 9px 11px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px; font: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=password], .mono { font-family: var(--mono); font-size: 13px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 18px; }
+  button {
+    padding: 9px 17px; border-radius: 7px; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); font: inherit; font-weight: 550; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent-2); border-color: var(--accent-2); }
+  button.primary:hover:not(:disabled) { background: var(--accent); }
+  button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .badge {
+    font-size: 11px; padding: 3px 9px; border-radius: 20px; font-weight: 600;
+    background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+  }
+  .badge.ok { color: var(--good); border-color: #2c5c45; }
+  .badge.bad { color: var(--bad); border-color: #6b3030; }
+  .badge.warn { color: var(--warn); border-color: #6b5324; }
+  .note { padding: 11px 14px; border-radius: 8px; font-size: 13px; margin-top: 12px; border: 1px solid; }
+  .note.info { background: #16202c; border-color: #26364a; color: #b7c6d8; }
+  .note.ok   { background: #14241c; border-color: #2c5c45; color: #9adcbb; }
+  .note.warn { background: #241f14; border-color: #6b5324; color: #ffd79a; }
+  .note.bad  { background: #241616; border-color: #6b3030; color: #ffb0b0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; }
+  th, td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 550; font-size: 11.5px; letter-spacing: .3px; text-transform: uppercase; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:hover { background: #1b2330; }
+  .scroll { overflow-x: auto; }
+  .num { font-family: var(--mono); }
+  .pos { color: var(--good); } .neg { color: var(--bad); }
+  .headline { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 6px; }
+  .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .card .v { font-family: var(--mono); font-size: 22px; font-weight: 600; margin-top: 6px; }
+  .card.hero { grid-column: 1 / -1; border-color: var(--accent-2); }
+  .card.hero .v { font-size: 34px; }
+  .card .x { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  progress { width: 100%; height: 8px; margin-top: 14px; }
+  pre.log {
+    background: #0b0f14; border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+    font-family: var(--mono); font-size: 11.5px; color: #9fb0c4; max-height: 190px;
+    overflow: auto; margin-top: 12px; white-space: pre-wrap;
+  }
+  ul.plain { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  ul.plain li { margin-bottom: 5px; }
+  .files a { color: var(--accent); text-decoration: none; font-size: 13px; margin-right: 14px; }
+  .files a:hover { text-decoration: underline; }
+  .hidden { display: none !important; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Analizator rentowności Bitget</h1>
+  <span class="sub">panel lokalny &middot; API v2 tylko do odczytu &middot; dane nie opuszczają tej maszyny</span>
+</header>
+
+<main>
+  <div id="alert" class="hidden"></div>
+
+  <section>
+    <h2>1. Klucze API <span id="keyBadge" class="badge">sprawdzam...</span></h2>
+    <p class="hint">
+      Wygeneruj w Bitget klucz z uprawnieniem <strong>wyłącznie do odczytu</strong> (bez Trade i bez Withdraw).
+      Po zapisaniu klucze są szyfrowane AES-256-GCM i nie da się ich odczytać z tego panelu &ndash;
+      widoczna jest tylko zamaskowana końcówka.
+    </p>
+
+    <div id="keyInfo" class="note info hidden"></div>
+
+    <div class="grid">
+      <div>
+        <label for="apiKey">API key</label>
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="bg_...">
+      </div>
+      <div>
+        <label for="apiSecret">API secret</label>
+        <input id="apiSecret" type="password" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="apiPass">Passphrase</label>
+        <input id="apiPass" type="password" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="apiLabel">Etykieta (opcjonalnie)</label>
+        <input id="apiLabel" type="text" autocomplete="off" placeholder="np. konto główne">
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="btnSave" class="primary">Zapisz zaszyfrowane</button>
+      <button id="btnTest">Sprawdź połączenie i uprawnienia</button>
+      <button id="btnDelete" class="danger">Usuń zapisane klucze</button>
+    </div>
+
+    <div id="testResult"></div>
+  </section>
+
+  <section>
+    <h2>2. Zakres analizy</h2>
+    <p class="hint">
+      Bitget oddaje historię tylko przez ograniczony czas wstecz &ndash; po analizie sprawdź sekcję
+      &bdquo;Pokrycie danych&rdquo;, żeby zobaczyć, od kiedy dane faktycznie są.
+    </p>
+    <div class="grid">
+      <div><label for="dateFrom">Od</label><input id="dateFrom" type="date"></div>
+      <div><label for="dateTo">Do</label><input id="dateTo" type="date"></div>
+      <div><label for="fxRate">Kurs 1 USDT (opcjonalnie)</label><input id="fxRate" type="number" step="0.0001" placeholder="np. 4.05"></div>
+      <div><label for="fxLabel">Waluta wyświetlania</label><input id="fxLabel" type="text" placeholder="PLN"></div>
+      <div><label for="outDir">Katalog na CSV</label><input id="outDir" type="text" value="raport"></div>
+      <div><label for="extraFlows">Plik z dodatkowymi przepływami</label><input id="extraFlows" type="text" placeholder="stare_wplaty.csv"></div>
+    </div>
+    <div class="row">
+      <button id="btnRun" class="primary">Analizuj</button>
+      <span id="runStatus" class="badge">gotowy</span>
+    </div>
+    <progress id="progress" class="hidden" max="100" value="0"></progress>
+    <pre id="log" class="log hidden"></pre>
+  </section>
+
+  <section id="results" class="hidden">
+    <h2>3. Wynik</h2>
+    <p class="hint" id="resultRange"></p>
+
+    <div class="headline" id="headline"></div>
+    <div id="verdict"></div>
+
+    <h2 style="margin-top:28px">Z czego się to składa</h2>
+    <div class="scroll"><table id="breakdown"></table></div>
+
+    <h2 style="margin-top:28px">Miesiąc po miesiącu</h2>
+    <div class="scroll"><table id="months"></table></div>
+
+    <h2 style="margin-top:28px">Zrealizowany wynik wg pary (spot)</h2>
+    <div class="scroll"><table id="pairs"></table></div>
+
+    <h2 style="margin-top:28px">Pokrycie danych</h2>
+    <div class="scroll"><table id="coverage"></table></div>
+
+    <div id="warnings"></div>
+
+    <h2 style="margin-top:28px">Pliki do pobrania</h2>
+    <div class="files" id="files"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const TOKEN = new URLSearchParams(location.search).get("t") || "";
+let FX = { kurs: 1, etykieta: "USDT" };
+let polling = null;
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { "X-Panel-Token": TOKEN, "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  const payload = await response.json().catch(() => ({ blad: "Nieczytelna odpowiedź serwera." }));
+  if (!response.ok) throw new Error(payload.blad || ("Błąd HTTP " + response.status));
+  return payload;
+}
+
+function alertBox(kind, message) {
+  const box = $("alert");
+  box.className = "note " + kind;
+  box.textContent = message;
+  box.classList.remove("hidden");
+  if (kind === "ok") setTimeout(() => box.classList.add("hidden"), 4000);
+}
+
+function fmt(value, decimals = 2) {
+  const n = Number(value || 0) * FX.kurs;
+  return n.toLocaleString("pl-PL", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+function money(value) { return fmt(value) + " " + FX.etykieta; }
+function cls(value) { return Number(value) >= 0 ? "pos" : "neg"; }
+function cell(value) { return '<td class="num ' + cls(value) + '">' + fmt(value) + "</td>"; }
+
+// ---------------------------------------------------------------- klucze
+
+function renderKeys(state) {
+  const badge = $("keyBadge");
+  const info = $("keyInfo");
+  if (state.blad) {
+    badge.className = "badge bad"; badge.textContent = "błąd";
+    info.className = "note bad"; info.textContent = state.blad;
+    info.classList.remove("hidden");
+    return;
+  }
+  if (state.zapisane) {
+    badge.className = "badge ok"; badge.textContent = "zapisane i zaszyfrowane";
+    info.className = "note ok";
+    info.innerHTML =
+      "Klucz <span class='mono'>" + (state.zamaskowany_klucz || "") + "</span>" +
+      (state.etykieta ? " &middot; " + state.etykieta : "") +
+      (state.zapisano_dnia ? " &middot; zapisano " + state.zapisano_dnia : "") +
+      "<br>Plik: <code>" + state.katalog + "</code> (poza repozytorium, prawa 0600)";
+    info.classList.remove("hidden");
+  } else {
+    badge.className = "badge warn"; badge.textContent = "brak kluczy";
+    info.className = "note info";
+    info.innerHTML = "Nic jeszcze nie zapisano. Klucze trafią do <code>" + state.katalog + "</code>.";
+    info.classList.remove("hidden");
+  }
+}
+
+function clearInputs() {
+  ["apiKey", "apiSecret", "apiPass"].forEach((id) => { $(id).value = ""; });
+}
+
+async function saveKeys() {
+  const body = {
+    api_key: $("apiKey").value,
+    api_secret: $("apiSecret").value,
+    api_passphrase: $("apiPass").value,
+    etykieta: $("apiLabel").value,
+  };
+  try {
+    const data = await api("/api/klucze", { method: "POST", body: JSON.stringify(body) });
+    clearInputs();
+    renderKeys(data.klucze);
+    alertBox("ok", "Klucze zapisane i zaszyfrowane. Sprawdź teraz uprawnienia.");
+    testKeys();
+  } catch (err) { alertBox("bad", err.message); }
+}
+
+async function deleteKeys() {
+  if (!confirm("Usunąć zapisane klucze API z tego komputera?")) return;
+  try {
+    const data = await api("/api/klucze", { method: "DELETE" });
+    renderKeys(data.klucze);
+    $("testResult").innerHTML = "";
+    alertBox("ok", "Klucze usunięte.");
+  } catch (err) { alertBox("bad", err.message); }
+}
+
+async function testKeys() {
+  const box = $("testResult");
+  box.innerHTML = '<div class="note info">Sprawdzam połączenie z Bitget...</div>';
+  try {
+    const data = await api("/api/test", { method: "POST" });
+    if (!data.ok) {
+      box.innerHTML = '<div class="note bad"><strong>Połączenie nieudane.</strong><br>' +
+        escapeHtml(data.blad || "") + (data.podpowiedz ? "<br>" + escapeHtml(data.podpowiedz) : "") + "</div>";
+      return;
+    }
+    const perms = (data.uprawnienia || [])
+      .map((p) => "<li>" + (p.zapis ? "&#9888; " : "") + escapeHtml(p.opis) + " <code>" + escapeHtml(p.kod) + "</code></li>")
+      .join("");
+    const kind = data.moze_wyplacac ? "bad" : (data.uprawnienia_zapisu.length ? "warn" : "ok");
+    const verdict = data.moze_wyplacac
+      ? "Klucz ma uprawnienie do WYPŁAT."
+      : (data.uprawnienia_zapisu.length ? "Klucz ma uprawnienia do zapisu." : "Klucz jest tylko do odczytu.");
+    box.innerHTML =
+      '<div class="note ' + kind + '"><strong>Połączenie działa. ' + verdict + "</strong>" +
+      "<br>Konto: <code>" + escapeHtml(data.user_id || "?") + "</code>" +
+      " &middot; whitelist IP: <code>" + escapeHtml(data.ips || "brak") + "</code>" +
+      (perms ? "<ul class='plain'>" + perms + "</ul>" : "") +
+      (data.ostrzezenia || []).map((w) => "<div style='margin-top:8px'>&#9888; " + escapeHtml(w) + "</div>").join("") +
+      "</div>";
+  } catch (err) {
+    box.innerHTML = '<div class="note bad">' + escapeHtml(err.message) + "</div>";
+  }
+}
+
+function escapeHtml(text) {
+  return String(text == null ? "" : text).replace(/[&<>"']/g, (ch) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+// --------------------------------------------------------------- analiza
+
+async function startAnalysis() {
+  const body = {
+    od: $("dateFrom").value,
+    do: $("dateTo").value,
+    fx_rate: $("fxRate").value,
+    fx_label: $("fxLabel").value,
+    katalog: $("outDir").value,
+    dodatkowe_przeplywy: $("extraFlows").value,
+  };
+  try {
+    $("btnRun").disabled = true;
+    $("progress").classList.remove("hidden");
+    $("log").classList.remove("hidden");
+    await api("/api/analiza", { method: "POST", body: JSON.stringify(body) });
+    poll();
+  } catch (err) {
+    $("btnRun").disabled = false;
+    alertBox("bad", err.message);
+  }
+}
+
+function poll() {
+  clearInterval(polling);
+  polling = setInterval(refreshJob, 1200);
+  refreshJob();
+}
+
+async function refreshJob() {
+  let job;
+  try { job = await api("/api/zadanie"); }
+  catch (err) { clearInterval(polling); alertBox("bad", err.message); return; }
+  renderJob(job);
+  if (job.status !== "running") {
+    clearInterval(polling);
+    $("btnRun").disabled = false;
+  }
+}
+
+function renderJob(job) {
+  const status = $("runStatus");
+  const labels = { idle: "gotowy", running: "w toku", done: "zakończone", error: "błąd" };
+  status.textContent = labels[job.status] || job.status;
+  status.className = "badge " + (job.status === "done" ? "ok" : job.status === "error" ? "bad" : job.status === "running" ? "warn" : "");
+
+  if (job.status === "running") {
+    $("progress").classList.remove("hidden");
+    $("progress").value = job.krokow ? Math.round((job.krok_nr / job.krokow) * 100) : 0;
+    status.textContent = "w toku: " + (job.krok || "");
+  } else if (job.status === "done") {
+    $("progress").value = 100;
+  }
+
+  if (job.logi && job.logi.length) {
+    $("log").classList.remove("hidden");
+    $("log").textContent = job.logi.join("\n");
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+  if (job.status === "error") alertBox("bad", job.blad || "Analiza nie powiodła się.");
+  if (job.status === "done" && job.wynik) renderResult(job.wynik, job.pliki || [], job.katalog);
+}
+
+// ---------------------------------------------------------------- wyniki
+
+function renderResult(r, files, dir) {
+  FX = r.waluta || FX;
+  $("results").classList.remove("hidden");
+  $("resultRange").textContent =
+    "Zakres " + r.zakres.od + " .. " + r.zakres.do +
+    (FX.kurs !== 1 ? "  |  przeliczone kursem 1 USDT = " + FX.kurs + " " + FX.etykieta : "");
+
+  const roi = r.roi == null ? "n/d" : (r.roi * 100).toFixed(2).replace(".", ",") + "%";
+  $("headline").innerHTML =
+    card("hero", r.realny_wynik_usdt >= 0 ? "Realny zysk" : "Realna strata",
+         money(r.realny_wynik_usdt), "wartość aktywów − wpłaty + wypłaty  |  ROI od wpłaconego kapitału: " + roi,
+         cls(r.realny_wynik_usdt)) +
+    card("", "Aktualna wartość aktywów", money(r.wartosc_aktywow_usdt),
+         Object.entries(r.wartosc_aktywow_wg_konta || {})
+           .filter(([, v]) => Math.abs(v) > 0.005)
+           .map(([k, v]) => k + ": " + fmt(v)).join(" &middot; ") || "&nbsp;") +
+    card("", "Wpłaty z zewnątrz", money(r.wplaty_usdt), r.liczba_wplat + " operacji, kurs z dnia operacji") +
+    card("", "Wypłaty na zewnątrz", money(r.wyplaty_usdt), r.liczba_wyplat + " operacji, po odjęciu prowizji");
+
+  const s = r.skladniki;
+  $("verdict").innerHTML =
+    '<div class="note info">Liczba wyżej jest twarda: nie da się jej poprawić zyskownym botem, ' +
+    "jeśli gdzie indziej zniknęły pieniądze. Rozbicie niżej wyjaśnia, gdzie ten wynik powstał. " +
+    "Suma składników (" + money(s.suma_wyjasniona) + ") nie musi równać się wynikowi &ndash; " +
+    "różnica " + money(s.roznica_niewyjasniona) + " to zwykle zmiany wyceny monet trzymanych poza spotem " +
+    "oraz historia starsza niż limity API.</div>";
+
+  $("breakdown").innerHTML =
+    "<thead><tr><th>Składnik</th><th>Kwota</th></tr></thead><tbody>" +
+    [["Spot &ndash; zrealizowany wynik z transakcji", s.spot_zrealizowany],
+     ["Spot &ndash; niezrealizowany (trzymane monety)", s.spot_niezrealizowany],
+     ["Futures &ndash; wynik na pozycjach", s.futures_pnl],
+     ["Futures &ndash; funding fee", s.futures_funding],
+     ["Futures &ndash; prowizje", s.futures_prowizje],
+     ["Earn &ndash; odsetki", s.earn_odsetki],
+     ["Nagrody / rebaty / airdropy", s.nagrody],
+     ["Pozostałe operacje", s.pozostale]]
+      .map(([label, value]) => "<tr><td>" + label + "</td>" + cell(value) + "</tr>").join("") +
+    '<tr><td><strong>Suma wyjaśnionych składników</strong></td>' + cell(s.suma_wyjasniona) + "</tr>" +
+    "<tr><td>Różnica do wyniku rzeczywistego</td>" + cell(s.roznica_niewyjasniona) + "</tr>" +
+    "<tr><td>W tym prowizje spot (informacyjnie)</td>" + cell(-Math.abs(s.spot_prowizje)) + "</tr>" +
+    "</tbody>";
+
+  $("months").innerHTML =
+    "<thead><tr><th>Miesiąc</th><th>Wpłaty</th><th>Wypłaty</th><th>Spot</th><th>Futures</th>" +
+    "<th>Funding</th><th>Prowizje F.</th><th>Earn</th><th>Razem</th></tr></thead><tbody>" +
+    (r.miesiace.length
+      ? r.miesiace.map((m) =>
+          "<tr><td>" + m.miesiac + "</td>" +
+          '<td class="num">' + fmt(m.wplaty) + "</td>" +
+          '<td class="num">' + fmt(m.wyplaty) + "</td>" +
+          cell(m.spot_zrealizowany) + cell(m.futures_pnl) + cell(m.futures_funding) +
+          cell(m.futures_prowizje) + cell(m.earn_odsetki) + cell(m.wynik_razem) + "</tr>").join("")
+      : '<tr><td colspan="9">Brak danych w zadanym zakresie.</td></tr>') +
+    "</tbody>";
+
+  const pairs = r.pary || [];
+  $("pairs").innerHTML =
+    "<thead><tr><th>Para</th><th>Zrealizowany P&amp;L</th><th>Prowizje</th><th>Transakcje</th>" +
+    "<th>Kupiono</th><th>Sprzedano</th></tr></thead><tbody>" +
+    (pairs.length
+      ? pairs.map((p) =>
+          "<tr><td>" + escapeHtml(p.para) + (p.bez_historii > 0 ? ' <span class="badge warn">niepełna historia</span>' : "") + "</td>" +
+          cell(p.zrealizowany_pnl) +
+          '<td class="num">' + fmt(p.prowizje) + "</td>" +
+          '<td class="num">' + p.transakcje + "</td>" +
+          '<td class="num">' + fmt(p.kupiono) + "</td>" +
+          '<td class="num">' + fmt(p.sprzedano) + "</td></tr>").join("")
+      : '<tr><td colspan="6">Brak transakcji spot w zadanym zakresie.</td></tr>') +
+    "</tbody>";
+
+  $("coverage").innerHTML =
+    "<thead><tr><th>Źródło</th><th>Rekordów</th><th>Od</th><th>Do</th><th>Uwaga</th></tr></thead><tbody>" +
+    (r.pokrycie || []).map((c) =>
+      "<tr><td>" + escapeHtml(c.zrodlo) + "</td>" +
+      '<td class="num">' + c.rekordow + "</td>" +
+      "<td>" + escapeHtml(c.od) + "</td><td>" + escapeHtml(c.do) + "</td>" +
+      '<td style="text-align:left">' + escapeHtml(c.blad || "") + "</td></tr>").join("") +
+    "</tbody>";
+
+  const warnings = r.ostrzezenia || [];
+  $("warnings").innerHTML = warnings.length
+    ? '<div class="note warn" style="margin-top:16px"><strong>Ostrzeżenia</strong><ul class="plain">' +
+      warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
+    : "";
+
+  $("files").innerHTML =
+    (files || []).map((name) =>
+      '<a href="/api/plik?nazwa=' + encodeURIComponent(name) + "&t=" + encodeURIComponent(TOKEN) +
+      '" download>' + escapeHtml(name) + "</a>").join("") +
+    (dir ? '<div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">Katalog: <code>' + escapeHtml(dir) + "</code></div>" : "");
+}
+
+function card(extra, key, value, sub, valueClass) {
+  return '<div class="card ' + extra + '"><div class="k">' + key + "</div>" +
+    '<div class="v ' + (valueClass || "") + '">' + value + "</div>" +
+    (sub ? '<div class="x">' + sub + "</div>" : "") + "</div>";
+}
+
+// ------------------------------------------------------------------ start
+
+async function init() {
+  if (!TOKEN) {
+    alertBox("bad", "Brak tokenu w adresie. Otwórz link wypisany w terminalu po uruchomieniu panelu.");
+    return;
+  }
+  const today = new Date();
+  const yearAgo = new Date(today.getTime() - 365 * 86400000);
+  $("dateTo").value = today.toISOString().slice(0, 10);
+  $("dateFrom").value = yearAgo.toISOString().slice(0, 10);
+
+  try {
+    const state = await api("/api/stan");
+    renderKeys(state.klucze);
+    $("outDir").value = state.katalog_domyslny || "raport";
+    renderJob(state.zadanie);
+    if (state.zadanie.status === "running") poll();
+  } catch (err) { alertBox("bad", err.message); }
+}
+
+$("btnSave").addEventListener("click", saveKeys);
+$("btnTest").addEventListener("click", testKeys);
+$("btnDelete").addEventListener("click", deleteKeys);
+$("btnRun").addEventListener("click", startAnalysis);
+init();
+</script>
+</body>
+</html>

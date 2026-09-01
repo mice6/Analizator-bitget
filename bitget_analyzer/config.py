@@ -114,73 +114,104 @@ def _parse_date(value: str, *, end_of_day: bool = False) -> datetime:
     )
 
 
-def build_config(args, env_file: Path = Path(".env")) -> Config:
-    """Składa Config z pliku .env, zmiennych środowiskowych i argumentów CLI."""
-    load_dotenv(env_file)
-
-    key = os.environ.get("BITGET_API_KEY", "").strip()
-    secret = os.environ.get("BITGET_API_SECRET", "").strip()
-    passphrase = os.environ.get("BITGET_API_PASSPHRASE", "").strip()
-
-    missing = [
-        name
-        for name, value in (
-            ("BITGET_API_KEY", key),
-            ("BITGET_API_SECRET", secret),
-            ("BITGET_API_PASSPHRASE", passphrase),
-        )
-        if not value
-    ]
-    if missing:
+def create_config(
+    credentials,
+    *,
+    since: Optional[str] = None,
+    to: Optional[str] = None,
+    out: str = "raport",
+    fx_rate: Optional[float] = None,
+    fx_label: Optional[str] = None,
+    product_types: str = ",".join(ALL_PRODUCT_TYPES),
+    transfer_coins: Optional[str] = None,
+    extra_flows: Optional[str] = None,
+    skip: str = "",
+    rps: float = 8.0,
+    csv_sep: str = ";",
+    csv_decimal: str = ",",
+    verbose: bool = False,
+) -> Config:
+    """Buduje Config z gotowych danych - używane przez CLI i przez panel web."""
+    if credentials is None or not credentials.is_complete():
         raise ConfigError(
-            "Brak zmiennych środowiskowych: "
-            + ", ".join(missing)
-            + ".\nSkopiuj .env.example do .env i uzupełnij klucz API (read-only)."
+            "Brak kluczy API. Wprowadź je w panelu (python3 panel.py) albo "
+            "ustaw BITGET_API_KEY / BITGET_API_SECRET / BITGET_API_PASSPHRASE."
         )
 
     now = datetime.now(timezone.utc)
-    end = _parse_date(args.to, end_of_day=True) if args.to else now
-    if args.since:
-        start = _parse_date(args.since)
+    end = _parse_date(to, end_of_day=True) if to else now
+    if since:
+        start = _parse_date(since)
     elif os.environ.get("BITGET_START"):
         start = _parse_date(os.environ["BITGET_START"])
     else:
         start = end - timedelta(days=365)
     if start >= end:
-        raise ConfigError("Data --od musi być wcześniejsza niż --do.")
+        raise ConfigError("Data początkowa musi być wcześniejsza niż końcowa.")
 
-    fx_rate = float(args.fx_rate or os.environ.get("BITGET_FX_RATE") or 1.0)
-    fx_label = args.fx_label or os.environ.get("BITGET_FX_LABEL") or "USDT"
-    if fx_rate <= 0:
-        raise ConfigError("--fx-rate musi być liczbą dodatnią.")
+    rate = float(fx_rate or os.environ.get("BITGET_FX_RATE") or 1.0)
+    label = fx_label or os.environ.get("BITGET_FX_LABEL") or "USDT"
+    if rate <= 0:
+        raise ConfigError("Kurs przeliczeniowy musi być liczbą dodatnią.")
 
-    product_types = [p.strip().upper() for p in args.product_types.split(",") if p.strip()]
-    unknown = [p for p in product_types if p not in ALL_PRODUCT_TYPES]
+    types = [p.strip().upper() for p in product_types.split(",") if p.strip()]
+    unknown = [p for p in types if p not in ALL_PRODUCT_TYPES]
     if unknown:
         raise ConfigError(
-            f"Nieznany productType: {', '.join(unknown)}. Dozwolone: {', '.join(ALL_PRODUCT_TYPES)}"
+            f"Nieznany productType: {', '.join(unknown)}. "
+            f"Dozwolone: {', '.join(ALL_PRODUCT_TYPES)}"
         )
 
-    transfer_coins = None
-    if args.transfer_coins:
-        transfer_coins = [c.strip().upper() for c in args.transfer_coins.split(",") if c.strip()]
+    coins = None
+    if transfer_coins:
+        coins = [c.strip().upper() for c in transfer_coins.split(",") if c.strip()]
 
     return Config(
-        api_key=key,
-        api_secret=secret,
-        api_passphrase=passphrase,
+        api_key=credentials.api_key,
+        api_secret=credentials.api_secret,
+        api_passphrase=credentials.api_passphrase,
         start=start,
         end=end,
         base_url=os.environ.get("BITGET_BASE_URL", DEFAULT_BASE_URL).rstrip("/"),
-        out_dir=Path(args.out),
-        fx_rate=fx_rate,
-        fx_label=fx_label,
-        product_types=product_types,
-        transfer_coins=transfer_coins,
-        extra_flows=Path(args.extra_flows) if args.extra_flows else None,
-        skip=[s.strip().lower() for s in (args.skip or "").split(",") if s.strip()],
+        out_dir=Path(out),
+        fx_rate=rate,
+        fx_label=label,
+        product_types=types,
+        transfer_coins=coins,
+        extra_flows=Path(extra_flows) if extra_flows else None,
+        skip=[s.strip().lower() for s in (skip or "").split(",") if s.strip()],
+        csv_sep=csv_sep,
+        csv_decimal=csv_decimal,
+        requests_per_second=rps,
+        verbose=verbose,
+    )
+
+
+def build_config(args, env_file: Path = Path(".env")) -> Config:
+    """Config dla CLI: .env / zmienne środowiskowe, a w razie ich braku
+    klucze zapisane w panelu."""
+    load_dotenv(env_file)
+
+    from .secrets_store import SecretsError, resolve_credentials
+
+    try:
+        credentials = resolve_credentials()
+    except SecretsError as exc:
+        raise ConfigError(str(exc)) from exc
+
+    return create_config(
+        credentials,
+        since=args.since,
+        to=args.to,
+        out=args.out,
+        fx_rate=args.fx_rate,
+        fx_label=args.fx_label,
+        product_types=args.product_types,
+        transfer_coins=args.transfer_coins,
+        extra_flows=args.extra_flows,
+        skip=args.skip,
+        rps=args.rps,
         csv_sep=args.csv_sep,
         csv_decimal=args.csv_decimal,
-        requests_per_second=args.rps,
         verbose=args.verbose,
     )

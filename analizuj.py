@@ -19,22 +19,10 @@ import logging
 import sys
 
 from bitget_analyzer import __version__
-from bitget_analyzer.analysis import Analyzer
-from bitget_analyzer.client import BitgetClient, BitgetError
+from bitget_analyzer.client import BitgetError
 from bitget_analyzer.config import ALL_PRODUCT_TYPES, ConfigError, build_config
-from bitget_analyzer.earn import fetch_savings_history
-from bitget_analyzer.futures import fetch_closed_positions, fetch_futures_bills
-from bitget_analyzer.model import Dataset
-from bitget_analyzer.prices import PriceBook
+from bitget_analyzer.pipeline import run
 from bitget_analyzer.report import Reporter
-from bitget_analyzer.spot import coins_seen, fetch_spot_bills, fetch_spot_fills
-from bitget_analyzer.valuation import fetch_equity
-from bitget_analyzer.wallet import (
-    fetch_deposits,
-    fetch_transfers,
-    fetch_withdrawals,
-    load_extra_flows,
-)
 
 log = logging.getLogger("bitget")
 
@@ -67,52 +55,6 @@ def parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def collect(cfg, client: BitgetClient, prices: PriceBook) -> Dataset:
-    """Pobiera wszystkie potrzebne dane z API."""
-    data = Dataset()
-
-    prices.load_symbols()
-    prices.load_current()
-
-    if cfg.enabled("wallet"):
-        log.info("Pobieram historię wpłat...")
-        fetch_deposits(client, cfg, prices, data)
-        log.info("Pobieram historię wypłat...")
-        fetch_withdrawals(client, cfg, prices, data)
-
-    if cfg.enabled("spot"):
-        log.info("Pobieram księgę rachunku spot...")
-        fetch_spot_bills(client, cfg, data)
-
-    if cfg.enabled("futures"):
-        log.info("Pobieram księgę rachunku futures...")
-        fetch_futures_bills(client, cfg, data)
-
-    if cfg.enabled("fills"):
-        log.info("Pobieram historię transakcji spot...")
-        fetch_spot_fills(client, cfg, prices, data)
-
-    if cfg.enabled("positions"):
-        log.info("Pobieram historię zamkniętych pozycji futures...")
-        fetch_closed_positions(client, cfg, data)
-
-    if cfg.enabled("earn"):
-        log.info("Pobieram dane Earn...")
-        fetch_savings_history(client, cfg, data)
-
-    if cfg.enabled("transfers"):
-        log.info("Pobieram transfery wewnętrzne...")
-        fetch_transfers(client, cfg, data, coins_seen(data))
-
-    if cfg.extra_flows:
-        load_extra_flows(cfg.extra_flows, prices, data)
-
-    log.info("Pobieram aktualną wycenę portfela...")
-    fetch_equity(client, cfg, prices, data)
-
-    return data
-
-
 def main(argv=None) -> int:
     args = parse_args(argv)
     logging.basicConfig(
@@ -128,12 +70,8 @@ def main(argv=None) -> int:
         print(f"Błąd konfiguracji: {exc}", file=sys.stderr)
         return 2
 
-    client = BitgetClient(cfg)
-    client.sync_time()
-
-    prices = PriceBook(client, cache_path=cfg.out_dir / "price_cache.json")
     try:
-        data = collect(cfg, client, prices)
+        data, analysis, _ = run(cfg)
     except BitgetError as exc:
         print(f"\nAPI Bitget zwróciło błąd: {exc}", file=sys.stderr)
         if exc.is_permission_error:
@@ -146,10 +84,7 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         print("\nPrzerwano.", file=sys.stderr)
         return 130
-    finally:
-        prices.save_cache()
 
-    analysis = Analyzer(data, prices).build()
     reporter = Reporter(cfg, data, analysis)
     reporter.print_console()
 
@@ -160,9 +95,6 @@ def main(argv=None) -> int:
     print("\nZapisane pliki:")
     for path in files:
         print(f"   {path}")
-    log.info(
-        "Wykonano %d żądań do API (%d ponowień).", client.request_count, client.retry_count
-    )
     return 0
 
 

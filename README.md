@@ -4,6 +4,10 @@ Skrypt w Pythonie, który przez oficjalne **Bitget API v2 (tylko odczyt)** liczy
 ile **realnie** zarobiłeś lub straciłeś na całym koncie — a nie ile pokazuje ROI
 pojedynczego bota.
 
+Klucze API podajesz w **panelu w przeglądarce**; są zapisywane w zaszyfrowanej
+postaci poza katalogiem projektu, więc nie mogą trafić do repozytorium. Analizę
+uruchamiasz z panelu albo z terminala.
+
 Główne pytanie, na które odpowiada:
 
 ```
@@ -28,17 +32,50 @@ powstał: spot, futures, funding fee, prowizje, Earn — miesiąc po miesiącu.
 > - Ustaw **whitelistę IP** na adres serwera, na którym uruchamiasz skrypt
 > - Zapisz **passphrase** — Bitget pokaże go tylko raz
 
-Dodatkowo:
+Panel sam to weryfikuje: przycisk „Sprawdź połączenie i uprawnienia” odpytuje
+`/api/v2/spot/account/info` i wypisuje faktyczne uprawnienia klucza. Jeśli klucz
+ma prawo do wypłat (`wwow`) albo do handlu (`stow`, `coow`…), zobaczysz czerwone
+ostrzeżenie z nazwą uprawnienia.
 
-- Klucze czytane są **wyłącznie ze zmiennych środowiskowych / pliku `.env`** —
-  nigdy nie wpisuj ich do kodu.
-- `.env` jest w `.gitignore`; katalog `raport/` z wynikami również.
-- Skrypt wykonuje **tylko żądania `GET` do `api.bitget.com`**. Nie wysyła danych
-  do żadnego innego serwisu, nie ma telemetrii, nie korzysta z zewnętrznych API
-  kursowych — kurs waluty do wyświetlania podajesz ręcznie (`--fx-rate`).
-- Jedyna zależność zewnętrzna to `requests`.
+### Jak przechowywane są klucze
 
----
+Klucze podajesz w panelu w przeglądarce. Zapisywane są w
+`~/.config/analizator-bitget/credentials.enc`, zaszyfrowane **AES-256-GCM**;
+klucz szyfrujący leży obok w `key.bin`. Oba pliki mają prawa `0600`, katalog `0700`,
+i leżą **poza repozytorium** — nie mogą trafić do gita nawet przez `git add -A`.
+
+**Co to realnie daje, a czego nie daje.** Zrezygnowaliśmy z hasła głównego, więc
+klucz szyfrujący musi leżeć na tej samej maszynie co zaszyfrowany plik. To chroni przed:
+
+- przypadkowym commitem kluczy do repozytorium,
+- podejrzeniem pliku, zrzutem ekranu, wysłaniem logów czy kopii katalogu projektu,
+- odczytaniem kluczy z samego panelu (interfejs pokazuje wyłącznie `****cdef`) —
+  raz zapisanego sekretu nie da się wyświetlić z powrotem.
+
+To **nie** chroni przed kimś, kto ma dostęp do Twojego konta na tym serwerze —
+taka osoba przeczyta oba pliki. Drugą warstwą obrony są tu uprawnienia klucza
+ograniczone do odczytu: najgorsze, co ktoś taki może zrobić, to podejrzeć historię
+konta. Wypłacić środków nie może.
+
+Chcesz mocniejszej ochrony? Wtedy potrzebne jest hasło główne podawane przy
+każdym uruchomieniu (klucz wyprowadzany funkcją scrypt zamiast trzymany w pliku) —
+napisz, dołożę to jako opcję.
+
+### Bezpieczeństwo samego panelu
+
+- nasłuch **tylko na `127.0.0.1`** — panel nie jest widoczny z sieci,
+- każde żądanie wymaga **losowego tokenu sesji** generowanego przy starcie i
+  wypisywanego w terminalu; bez niego panel zwraca `401`. To blokuje sytuację,
+  w której dowolna strona w internecie próbuje odpytać Twój `localhost`,
+- brak ciasteczek — token żyje wyłącznie w pamięci karty przeglądarki,
+- żądania z obcym nagłówkiem `Origin` są odrzucane (`403`),
+- CSP bez zewnętrznych zasobów: żadnego CDN-a, fontów ani skryptów z sieci,
+- pobieranie plików ograniczone do katalogu raportu (próby `../` kończą się `404`),
+- serwer to czysta biblioteka standardowa Pythona — bez frameworka webowego.
+
+Cały ruch wychodzący to **wyłącznie żądania `GET` do `api.bitget.com`**. Bez
+telemetrii, bez zewnętrznych API kursowych — kurs waluty do wyświetlania
+podajesz ręcznie.
 
 ## 2. Instalacja
 
@@ -49,16 +86,55 @@ cd Analizator-bitget
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env
-$EDITOR .env          # wklej BITGET_API_KEY / SECRET / PASSPHRASE
 ```
 
-Wymagany Python 3.9+.
+Wymagany Python 3.9+. Zależności: `requests` i `cryptography` (szyfrowanie kluczy).
+
+Kluczy **nie** wpisujesz do żadnego pliku — podajesz je w panelu przy pierwszym
+uruchomieniu. Jeśli wolisz zmienne środowiskowe (np. do crona), skopiuj
+`.env.example` do `.env`; mają wtedy pierwszeństwo przed panelem.
 
 ---
 
-## 3. Uruchomienie
+## 3. Panel w przeglądarce
+
+```bash
+python3 panel.py
+```
+
+W terminalu pojawi się adres z tokenem, np.
+`http://127.0.0.1:8770/?t=LMyY1-rcywHNTs9YKBsIwciKGLyItdU_` — otwórz go w przeglądarce.
+Token zmienia się przy każdym starcie panelu.
+
+Panel ma trzy kroki:
+
+1. **Klucze API** — wpisujesz key / secret / passphrase, zapisujesz (szyfrowanie
+   następuje od razu), sprawdzasz połączenie i uprawnienia klucza.
+2. **Zakres analizy** — daty, opcjonalny kurs PLN, katalog na CSV. Przycisk
+   „Analizuj” uruchamia pobieranie w tle; widzisz pasek postępu i log na żywo.
+3. **Wynik** — realny zysk/strata, rozbicie na składniki, tabela miesiąc po
+   miesiącu, ranking par, pokrycie danych, ostrzeżenia i linki do plików CSV.
+
+Opcje: `--port 8770`, `--out raport`, `--otworz` (otwiera przeglądarkę),
+`-v` (więcej logów).
+
+### Praca na serwerze bez pulpitu
+
+Nie wystawiaj panelu na świat — użyj tunelu SSH:
+
+```bash
+# na swoim komputerze
+ssh -L 8770:127.0.0.1:8770 uzytkownik@serwer
+
+# w sesji SSH, na serwerze
+cd Analizator-bitget && python3 panel.py
+```
+
+Potem otwierasz `http://127.0.0.1:8770/?t=...` u siebie. Panel nadal nasłuchuje
+wyłącznie na loopbacku serwera. `--host 0.0.0.0` istnieje, ale wypisuje wtedy
+ostrzeżenie — używaj tylko za firewallem i świadomie.
+
+## 4. Uruchomienie z terminala (bez panelu)
 
 ```bash
 # ostatni rok (domyślnie)
@@ -90,7 +166,7 @@ Najważniejsze opcje:
 
 ---
 
-## 4. Co skrypt pobiera
+## 5. Co skrypt pobiera
 
 | Dane | Endpoint API v2 | Limit okna |
 |---|---|---|
@@ -115,7 +191,7 @@ Podpis żądania: `ACCESS-SIGN = base64(HMAC_SHA256(secret, timestamp + "GET" +
 
 ---
 
-## 5. Jak czytać raport
+## 6. Jak czytać raport
 
 ### Sekcja 3 — REALNY ZYSK / STRATA
 Twarda liczba. Wpłaty i wypłaty są wyceniane **kursem z dnia operacji**, a nie
@@ -128,7 +204,7 @@ Rozbicie wyniku na źródła. Suma tych składników **nie musi** równać się 
 z sekcji 3 — różnica jest pokazana osobno i bierze się głównie z:
 
 - zmian wyceny monet trzymanych poza spotem (Earn, futures, funding),
-- historii starszej niż to, co API jeszcze zwraca (patrz sekcja 8 raportu),
+- historii starszej niż to, co API jeszcze zwraca (patrz „Pokrycie danych”),
 - konwersji, airdropów i operacji, których API nie kategoryzuje.
 
 Traktuj sekcję 3 jako prawdę, a sekcję 4 jako wyjaśnienie.
@@ -147,14 +223,14 @@ niezależnie od tego, co pokazuje ROI bota.
 Przesunięcia Funding ↔ Spot ↔ Futures ↔ Earn. Są raportowane **wyłącznie do
 kontroli** i celowo nie wchodzą do żadnej pozycji wyniku.
 
-### Sekcja 8 — pokrycie danych
+### Pokrycie danych
 Dla każdego źródła: ile rekordów i z jakiego okresu. **Sprawdzaj tę sekcję.**
 Jeśli kolumna „Od" jest późniejsza niż Twoja data startu, Bitget nie oddał już
 starszej historii i wynik jest niepełny — patrz punkt 7 niżej.
 
 ---
 
-## 6. Pliki wynikowe (`raport/`)
+## 7. Pliki wynikowe (`raport/`)
 
 | Plik | Zawartość |
 |---|---|
@@ -170,9 +246,9 @@ starszej historii i wynik jest niepełny — patrz punkt 7 niżej.
 
 ---
 
-## 7. Gdy API nie oddaje starszej historii
+## 8. Gdy API nie oddaje starszej historii
 
-Bitget przechowuje historię przez ograniczony czas. Jeśli sekcja 8 pokazuje, że
+Bitget przechowuje historię przez ograniczony czas. Jeśli sekcja z pokryciem danych pokazuje, że
 wpłaty zaczynają się później niż w rzeczywistości, uzupełnij brakujące operacje
 ręcznie (z wyciągu bankowego lub eksportu z panelu Bitget) w pliku CSV:
 
@@ -195,7 +271,7 @@ Wzór pliku: `przyklad_dodatkowe_przeplywy.csv`.
 
 ---
 
-## 8. Ograniczenia, o których warto wiedzieć
+## 9. Ograniczenia, o których warto wiedzieć
 
 - **Wynik zrealizowany spot** wymaga pełnej historii zakupów. Sprzedaż monety
   kupionej przed początkiem zakresu nie ma znanej ceny nabycia — skrypt **nie
@@ -212,26 +288,36 @@ Wzór pliku: `przyklad_dodatkowe_przeplywy.csv`.
 
 ---
 
-## 9. Testy
+## 10. Testy
 
-Pełna ścieżka liczenia jest pokryta testami offline (bez kontaktu z API):
+Wszystko jest pokryte testami offline (bez kontaktu z API Bitget):
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Testy sprawdzają m.in. wycenę wpłat kursem historycznym, wyłączenie transferów
-wewnętrznych z wyniku, poprawność P&L spot, rozbicie futures na P&L/funding/prowizje,
-podpis HMAC-SHA256 oraz podział zakresu na okna czasowe.
+Testy liczenia (`test_analiza.py`): wycena wpłat kursem historycznym, wyłączenie
+transferów wewnętrznych z wyniku, P&L spot metodą średniej ceny nabycia, sprzedaż
+bez znanej ceny nabycia, rozbicie futures na P&L/funding/prowizje, podpis
+HMAC-SHA256, podział zakresu na okna czasowe, eksport CSV.
+
+Testy panelu i kluczy (`test_panel.py`): szyfrowanie i odszyfrowanie kluczy, brak
+sekretów w zapisanym pliku, prawa `0600`, wykrywanie uprawnień zapisu i wypłat,
+odmowa bez tokenu, odrzucanie obcego `Origin`, blokada wyjścia poza katalog
+raportu, nagłówki bezpieczeństwa, nasłuch tylko na loopbacku oraz pełny przebieg
+analizy uruchomionej z panelu.
 
 ---
 
-## 10. Struktura projektu
+## 11. Struktura projektu
 
 ```
-analizuj.py                  # CLI i orkiestracja
+panel.py                     # panel web (zalecane wejście)
+analizuj.py                  # CLI
 bitget_analyzer/
 ├── config.py                # .env, argumenty, zakres dat
+├── secrets_store.py         # szyfrowanie i przechowywanie kluczy API
+├── account.py               # weryfikacja uprawnień klucza
 ├── client.py                # HMAC-SHA256, retry, rate limit, paginacja
 ├── prices.py                # kursy bieżące i historyczne + cache
 ├── model.py                 # struktury danych
@@ -240,7 +326,14 @@ bitget_analyzer/
 ├── futures.py               # księga futures + zamknięte pozycje
 ├── earn.py                  # produkty Earn
 ├── valuation.py             # aktualna wycena portfela
+├── pipeline.py              # wspólna ścieżka pobierania (CLI + panel)
 ├── analysis.py              # P&L, bilans miesięczny
-└── report.py                # konsola + CSV/JSON
-tests/test_analiza.py        # testy offline
+├── report.py                # konsola + CSV/JSON
+└── webapp/
+    ├── server.py            # serwer HTTP (stdlib), token, nagłówki
+    ├── service.py           # klucze, test połączenia, analiza w tle
+    └── index.html           # interfejs panelu
+tests/
+├── test_analiza.py          # testy liczenia
+└── test_panel.py            # testy kluczy i panelu
 ```
