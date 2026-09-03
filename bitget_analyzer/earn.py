@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from .client import BitgetClient, BitgetError, dedupe
+from .client import BitgetClient, dedupe
+from .limits import API_HISTORY_DAYS, effective_start, window_guard
 from .config import Config
 from .model import CAT_EARN, CAT_TRANSFER, Dataset, LedgerEntry, to_float
 
@@ -13,7 +14,7 @@ log = logging.getLogger("bitget.earn")
 SAVINGS_ASSETS_PATH = "/api/v2/earn/savings/assets"
 SAVINGS_RECORDS_PATH = "/api/v2/earn/savings/records"
 
-EARN_WINDOW_DAYS = 90
+EARN_WINDOW_DAYS = 89
 PERIOD_TYPES = ("flexible", "fixed")
 
 # Nazwy pól, pod którymi Bitget zwraca naliczone odsetki (zależnie od produktu).
@@ -31,28 +32,22 @@ def fetch_savings_history(client: BitgetClient, cfg: Config, data: Dataset) -> N
     """Historia produktów Earn: subskrypcje, wykupy i naliczone odsetki."""
     coverage = data.coverage_for("earn")
     seen_ids = set()
+    start_ms = effective_start(cfg, API_HISTORY_DAYS)
 
     for period_type in PERIOD_TYPES:
         # Stan pozycji (zawiera narosłe odsetki dla części produktów).
-        try:
-            positions = dedupe(
-                client.paginate_windows(
-                    SAVINGS_ASSETS_PATH,
-                    {"periodType": period_type},
-                    cfg.start_ms,
-                    cfg.end_ms,
-                    EARN_WINDOW_DAYS,
-                ),
-                "orderId",
-                "productId",
-            )
-        except BitgetError as exc:
-            if exc.is_permission_error:
-                coverage.error = exc.msg
-                data.warn(f"Brak uprawnień do danych Earn: {exc.msg}")
-                return
-            positions = []
-            log.info("Earn (%s) - pozycje niedostępne: %s", period_type, exc.msg)
+        positions = dedupe(
+            client.paginate_windows(
+                SAVINGS_ASSETS_PATH,
+                {"periodType": period_type},
+                start_ms,
+                cfg.end_ms,
+                EARN_WINDOW_DAYS,
+                on_window_error=window_guard(data, coverage, f"Earn {period_type}"),
+            ),
+            "orderId",
+            "productId",
+        )
 
         for row in positions:
             interest = _pick(row, *INTEREST_FIELDS)
@@ -77,20 +72,17 @@ def fetch_savings_history(client: BitgetClient, cfg: Config, data: Dataset) -> N
             coverage.observe(ts)
 
         # Historia operacji (subskrypcja / wykup / wypłata odsetek).
-        try:
-            records = dedupe(
-                client.paginate_windows(
-                    SAVINGS_RECORDS_PATH,
-                    {"periodType": period_type},
-                    cfg.start_ms,
-                    cfg.end_ms,
-                    EARN_WINDOW_DAYS,
-                ),
-                "orderId",
-            )
-        except BitgetError as exc:
-            log.info("Earn (%s) - historia niedostępna: %s", period_type, exc.msg)
-            continue
+        records = dedupe(
+            client.paginate_windows(
+                SAVINGS_RECORDS_PATH,
+                {"periodType": period_type},
+                start_ms,
+                cfg.end_ms,
+                EARN_WINDOW_DAYS,
+                on_window_error=window_guard(data, coverage, f"Earn {period_type}"),
+            ),
+            "orderId",
+        )
 
         for row in records:
             ts = int(to_float(row.get("cTime") or row.get("ctime")))

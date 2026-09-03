@@ -6,7 +6,8 @@ import json
 import logging
 from typing import List
 
-from .client import BitgetClient, BitgetError, dedupe
+from .client import BitgetClient, dedupe
+from .limits import SHORT_HISTORY_DAYS, effective_start, window_guard
 from .config import Config
 from .model import (
     CAT_DEPOSIT,
@@ -28,7 +29,7 @@ log = logging.getLogger("bitget.spot")
 BILLS_PATH = "/api/v2/spot/account/bills"
 FILLS_PATH = "/api/v2/spot/trade/fills"
 
-SPOT_WINDOW_DAYS = 90
+SPOT_WINDOW_DAYS = 89
 
 # groupType ze Spota -> kategoria w naszej księdze.
 GROUP_CATEGORY = {
@@ -56,19 +57,19 @@ REWARD_BUSINESS_TYPES = {
 
 
 def fetch_spot_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
-    """Pełna księga rachunku spot - każdy ruch środków wraz z opłatami."""
-    coverage = data.coverage_for("księga spot")
-    try:
-        rows = dedupe(
-            client.paginate_windows(
-                BILLS_PATH, {}, cfg.start_ms, cfg.end_ms, SPOT_WINDOW_DAYS
-            ),
-            "billId",
-        )
-    except BitgetError as exc:
-        coverage.error = exc.msg
-        data.warn(f"Nie pobrano księgi spot: {exc}")
-        return
+    """Księga rachunku spot - używana awaryjnie, gdy rejestr podatkowy zawiedzie."""
+    coverage = data.coverage_for("księga spot (90 dni)")
+    rows = dedupe(
+        client.paginate_windows(
+            BILLS_PATH,
+            {},
+            effective_start(cfg, SHORT_HISTORY_DAYS),
+            cfg.end_ms,
+            SPOT_WINDOW_DAYS,
+            on_window_error=window_guard(data, coverage, "Księga spot"),
+        ),
+        "billId",
+    )
 
     for row in rows:
         ts = int(to_float(row.get("cTime")))
@@ -113,18 +114,18 @@ def fetch_spot_fills(
     client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset
 ) -> None:
     """Historia wykonanych transakcji spot - podstawa do zrealizowanego P&L."""
-    coverage = data.coverage_for("transakcje spot")
-    try:
-        rows = dedupe(
-            client.paginate_windows(
-                FILLS_PATH, {}, cfg.start_ms, cfg.end_ms, SPOT_WINDOW_DAYS
-            ),
-            "tradeId",
-        )
-    except BitgetError as exc:
-        coverage.error = exc.msg
-        data.warn(f"Nie pobrano transakcji spot: {exc}")
-        return
+    coverage = data.coverage_for("transakcje spot (90 dni)")
+    rows = dedupe(
+        client.paginate_windows(
+            FILLS_PATH,
+            {},
+            effective_start(cfg, SHORT_HISTORY_DAYS),
+            cfg.end_ms,
+            SPOT_WINDOW_DAYS,
+            on_window_error=window_guard(data, coverage, "Transakcje spot"),
+        ),
+        "tradeId",
+    )
 
     for row in rows:
         ts = int(to_float(row.get("cTime")))

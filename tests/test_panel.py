@@ -292,7 +292,7 @@ class TestPrzebiegAnalizyWPanelu(unittest.TestCase):
             original = service_module.run
             service_module.run = fake_run
             try:
-                panel.start_analysis({"od": "2024-01-01", "do": "2024-12-31"})
+                panel.start_analysis({})
                 for _ in range(100):
                     if panel.job.snapshot()["status"] != "running":
                         break

@@ -13,7 +13,17 @@ import json
 import logging
 import random
 import time
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 from urllib.parse import urlencode
 
 import requests
@@ -33,6 +43,16 @@ RETRYABLE_CODES = {
     "50001",
     "50067",
 }
+
+# Błędy zakresu czasu: API odmawia danych starszych niż jego limit historii.
+RANGE_ERROR_CODES = {"43111", "40808"}
+RANGE_ERROR_MARKERS = (
+    "time range illegal",
+    "before currenttime",
+    "cannot be greater than",
+    "interval cannot",
+    "exceed",
+)
 
 # Kody oznaczające brak uprawnień - nie ma sensu ponawiać, ale nie przerywamy
 # całej analizy (np. klucz bez dostępu do Earn).
@@ -62,6 +82,14 @@ class BitgetError(RuntimeError):
     @property
     def is_permission_error(self) -> bool:
         return self.code in PERMISSION_CODES
+
+
+def is_range_error(exc: "BitgetError") -> bool:
+    """Czy błąd oznacza, że prosimy o dane starsze/szersze niż pozwala API."""
+    if exc.code in RANGE_ERROR_CODES:
+        return True
+    message = exc.msg.lower()
+    return any(marker in message for marker in RANGE_ERROR_MARKERS)
 
 
 class RateLimiter:
@@ -96,13 +124,21 @@ def extract_list(data: Any) -> List[dict]:
 
 
 def time_windows(start_ms: int, end_ms: int, window_days: int) -> Iterator[Tuple[int, int]]:
-    """Dzieli zakres czasu na okna zgodne z limitami API (np. 90 dni)."""
+    """Dzieli zakres czasu na okna zgodne z limitami API (np. 90 dni).
+
+    Okna wyznaczamy od końca zakresu wstecz, nie od początku. Dzięki temu
+    najnowsze okno zawsze kończy się "teraz" i mieści w oknie retencji API -
+    przy liczeniu od początku granice wypadałyby w przypadkowych miejscach
+    i najnowsze dane potrafiły wpaść do okna odrzuconego jako za stare.
+    """
     span = window_days * 24 * 60 * 60 * 1000 - 1000
-    cursor = start_ms
-    while cursor < end_ms:
-        chunk_end = min(cursor + span, end_ms)
-        yield cursor, chunk_end
-        cursor = chunk_end + 1
+    windows = []
+    cursor = end_ms
+    while cursor > start_ms:
+        chunk_start = max(cursor - span, start_ms)
+        windows.append((chunk_start, cursor))
+        cursor = chunk_start - 1
+    return iter(reversed(windows))
 
 
 class BitgetClient:
@@ -278,14 +314,72 @@ class BitgetClient:
         start_ms: int,
         end_ms: int,
         window_days: int,
+        *,
+        newest_first: bool = True,
+        on_window_error: Optional[Callable[["BitgetError", int, int], None]] = None,
         **kwargs: Any,
     ) -> Iterator[dict]:
-        """Paginacja z podziałem zakresu czasu na okna wymagane przez API."""
-        for window_start, window_end in time_windows(start_ms, end_ms, window_days):
-            call_params = dict(params or {})
-            call_params["startTime"] = window_start
-            call_params["endTime"] = window_end
-            yield from self.paginate(path, call_params, **kwargs)
+        """Paginacja z podziałem zakresu czasu na okna wymagane przez API.
+
+        Idziemy od najnowszych okien do najstarszych. Gdy API odmówi z powodu
+        limitu historii, przerywamy - starsze okna i tak nie mają szans, a każde
+        z nich kosztowałoby zapytanie. Błąd jednego okna nigdy nie unieważnia
+        danych już pobranych z okien nowszych.
+        """
+        windows = list(time_windows(start_ms, end_ms, window_days))
+        if newest_first:
+            windows.reverse()
+
+        for index, (window_start, window_end) in enumerate(windows):
+            try:
+                yield from self._window_rows(path, params, window_start, window_end, kwargs)
+                continue
+            except BitgetError as exc:
+                if not is_range_error(exc):
+                    if on_window_error is not None:
+                        on_window_error(exc, window_start, window_end)
+                        return
+                    raise
+                shrunk = None
+                if index == 0:
+                    # Realna granica retencji bywa węższa, niż zakładamy.
+                    # Zamiast zgadywać, zawężamy najnowsze okno aż się zmieści.
+                    shrunk = self._shrink_window(
+                        path, params, window_start, window_end, kwargs
+                    )
+                if shrunk is None:
+                    if on_window_error is not None:
+                        on_window_error(exc, window_start, window_end)
+                    return
+                yield from shrunk
+                return
+
+    def _window_rows(self, path, params, window_start, window_end, kwargs):
+        call_params = dict(params or {})
+        call_params["startTime"] = window_start
+        call_params["endTime"] = window_end
+        return list(self.paginate(path, call_params, **kwargs))
+
+    def _shrink_window(self, path, params, window_start, window_end, kwargs, attempts: int = 4):
+        """Zawęża okno od strony przeszłości, aż API je przyjmie."""
+        start = window_start
+        for _ in range(attempts):
+            start = start + (window_end - start) // 2
+            if window_end - start < 60_000:
+                return None
+            try:
+                rows = self._window_rows(path, params, start, window_end, kwargs)
+            except BitgetError as exc:
+                if is_range_error(exc):
+                    continue
+                return None
+            log.info(
+                "%s: API przyjęło dopiero okno od %s - starsze dane niedostępne.",
+                path,
+                time.strftime("%Y-%m-%d", time.gmtime(start / 1000)),
+            )
+            return rows
+        return None
 
     @staticmethod
     def _detect_cursor_field(row: dict) -> Optional[str]:

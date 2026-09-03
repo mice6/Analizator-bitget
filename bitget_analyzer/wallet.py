@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from .client import BitgetClient, BitgetError, dedupe
+from .client import BitgetClient, dedupe
+from .limits import SHORT_HISTORY_DAYS, effective_start, window_guard
 from .config import Config
 from .model import Dataset, ExternalFlow, Transfer, to_float
 from .prices import PriceBook
@@ -20,8 +21,8 @@ WITHDRAW_PATH = "/api/v2/spot/wallet/withdrawal-records"
 TRANSFER_PATH = "/api/v2/spot/account/transferRecords"
 
 # Limity okien czasowych narzucone przez API.
-WALLET_WINDOW_DAYS = 90
-TRANSFER_WINDOW_DAYS = 90
+WALLET_WINDOW_DAYS = 89
+TRANSFER_WINDOW_DAYS = 89
 
 SUCCESS_STATUSES = {"success", "successful", "finish", "finished", "completed"}
 
@@ -45,18 +46,18 @@ def _is_success(row: dict) -> bool:
 def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
     """Historia wpłat (środki przychodzące z zewnątrz)."""
     coverage = data.coverage_for("wpłaty")
-    try:
-        rows = dedupe(
-            client.paginate_windows(
-                DEPOSIT_PATH, {}, cfg.start_ms, cfg.end_ms, WALLET_WINDOW_DAYS
-            ),
-            "orderId",
-            "tradeId",
-        )
-    except BitgetError as exc:
-        coverage.error = exc.msg
-        data.warn(f"Nie pobrano historii wpłat: {exc}")
-        return
+    rows = dedupe(
+        client.paginate_windows(
+            DEPOSIT_PATH,
+            {},
+            cfg.start_ms,
+            cfg.end_ms,
+            WALLET_WINDOW_DAYS,
+            on_window_error=window_guard(data, coverage, "Wpłaty"),
+        ),
+        "orderId",
+        "tradeId",
+    )
 
     for row in rows:
         ts = _ts(row)
@@ -92,17 +93,17 @@ def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: D
 def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
     """Historia wypłat (środki wychodzące poza giełdę)."""
     coverage = data.coverage_for("wypłaty")
-    try:
-        rows = dedupe(
-            client.paginate_windows(
-                WITHDRAW_PATH, {}, cfg.start_ms, cfg.end_ms, WALLET_WINDOW_DAYS
-            ),
-            "orderId",
-        )
-    except BitgetError as exc:
-        coverage.error = exc.msg
-        data.warn(f"Nie pobrano historii wypłat: {exc}")
-        return
+    rows = dedupe(
+        client.paginate_windows(
+            WITHDRAW_PATH,
+            {},
+            cfg.start_ms,
+            cfg.end_ms,
+            WALLET_WINDOW_DAYS,
+            on_window_error=window_guard(data, coverage, "Wypłaty"),
+        ),
+        "orderId",
+    )
 
     for row in rows:
         ts = _ts(row)
@@ -151,26 +152,20 @@ def fetch_transfers(
     coverage = data.coverage_for("transfery wewnętrzne")
     candidates = cfg.transfer_coins or coins or ["USDT"]
     seen_ids = set()
+    start_ms = effective_start(cfg, SHORT_HISTORY_DAYS)
     for coin in sorted({c.upper() for c in candidates if c}):
-        try:
-            rows = dedupe(
-                client.paginate_windows(
-                    TRANSFER_PATH,
-                    {"coin": coin},
-                    cfg.start_ms,
-                    cfg.end_ms,
-                    TRANSFER_WINDOW_DAYS,
-                    limit=500,
-                ),
-                "transferId",
-            )
-        except BitgetError as exc:
-            if exc.is_permission_error:
-                coverage.error = exc.msg
-                data.warn(f"Brak uprawnień do historii transferów: {exc.msg}")
-                return
-            log.warning("Transfery %s: %s", coin, exc)
-            continue
+        rows = dedupe(
+            client.paginate_windows(
+                TRANSFER_PATH,
+                {"coin": coin},
+                start_ms,
+                cfg.end_ms,
+                TRANSFER_WINDOW_DAYS,
+                limit=500,
+                on_window_error=window_guard(data, coverage, f"Transfery {coin}"),
+            ),
+            "transferId",
+        )
 
         for row in rows:
             ts = _ts(row)

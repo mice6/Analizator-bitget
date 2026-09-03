@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from .client import BitgetClient, BitgetError, dedupe
+from .client import BitgetClient, dedupe
+from .limits import (
+    API_HISTORY_DAYS,
+    SHORT_HISTORY_DAYS,
+    effective_start,
+    window_guard,
+)
 from .config import Config
 from .model import (
     CAT_FUNDING,
@@ -25,7 +31,7 @@ POSITION_HISTORY_PATH = "/api/v2/mix/position/history-position"
 
 # API pozwala odpytywać rachunek futures maksymalnie w oknach 30-dniowych.
 BILL_WINDOW_DAYS = 30
-POSITION_WINDOW_DAYS = 90
+POSITION_WINDOW_DAYS = 30
 
 
 def _classify(business_type: str) -> str:
@@ -44,29 +50,22 @@ def _classify(business_type: str) -> str:
 
 
 def fetch_futures_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
-    """Księga rachunku futures: P&L pozycji, funding fee i prowizje."""
+    """Księga rachunku futures - awaryjnie, gdy rejestr podatkowy zawiedzie."""
     coverage = data.coverage_for("księga futures")
     seen_ids = set()
+    start_ms = effective_start(cfg, API_HISTORY_DAYS)
     for product_type in cfg.product_types:
-        try:
-            rows = dedupe(
-                client.paginate_windows(
-                    BILL_PATH,
-                    {"productType": product_type},
-                    cfg.start_ms,
-                    cfg.end_ms,
-                    BILL_WINDOW_DAYS,
-                ),
-                "billId",
-            )
-        except BitgetError as exc:
-            if exc.is_permission_error:
-                coverage.error = exc.msg
-                data.warn(f"Brak uprawnień do księgi futures: {exc.msg}")
-                return
-            log.warning("Księga futures %s: %s", product_type, exc)
-            data.warn(f"Nie pobrano księgi futures {product_type}: {exc.msg}")
-            continue
+        rows = dedupe(
+            client.paginate_windows(
+                BILL_PATH,
+                {"productType": product_type},
+                start_ms,
+                cfg.end_ms,
+                BILL_WINDOW_DAYS,
+                on_window_error=window_guard(data, coverage, f"Księga futures {product_type}"),
+            ),
+            "billId",
+        )
 
         for row in rows:
             ts = int(to_float(row.get("cTime") or row.get("ctime")))
@@ -102,22 +101,21 @@ def fetch_closed_positions(client: BitgetClient, cfg: Config, data: Dataset) -> 
     """
     coverage = data.coverage_for("zamknięte pozycje futures")
     seen_ids = set()
+    start_ms = effective_start(cfg, SHORT_HISTORY_DAYS)
     for product_type in cfg.product_types:
-        try:
-            rows = dedupe(
-                client.paginate_windows(
-                    POSITION_HISTORY_PATH,
-                    {"productType": product_type},
-                    cfg.start_ms,
-                    cfg.end_ms,
-                    POSITION_WINDOW_DAYS,
+        rows = dedupe(
+            client.paginate_windows(
+                POSITION_HISTORY_PATH,
+                {"productType": product_type},
+                start_ms,
+                cfg.end_ms,
+                POSITION_WINDOW_DAYS,
+                on_window_error=window_guard(
+                    data, coverage, f"Historia pozycji {product_type}"
                 ),
-                "positionId",
-            )
-        except BitgetError as exc:
-            log.info("Historia pozycji %s niedostępna: %s", product_type, exc.msg)
-            coverage.error = exc.msg
-            continue
+            ),
+            "positionId",
+        )
 
         for row in rows:
             ts = int(to_float(row.get("utime") or row.get("uTime") or row.get("ctime")))

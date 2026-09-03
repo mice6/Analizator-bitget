@@ -12,7 +12,14 @@ from .earn import fetch_savings_history
 from .futures import fetch_closed_positions, fetch_futures_bills
 from .model import Dataset
 from .prices import PriceBook
+from .limits import API_HISTORY_DAYS, effective_start
 from .spot import coins_seen, fetch_spot_bills, fetch_spot_fills
+from .tax import (
+    fetch_futures_records,
+    fetch_spot_records,
+    oldest_fill_ts,
+    synthesize_fills,
+)
 from .valuation import fetch_equity
 from .wallet import fetch_deposits, fetch_transfers, fetch_withdrawals, load_extra_flows
 
@@ -22,9 +29,9 @@ log = logging.getLogger("bitget.pipeline")
 STEPS = [
     ("prices", "Kursy i lista par"),
     ("wallet", "Historia wpłat i wypłat"),
-    ("spot", "Księga rachunku spot"),
-    ("futures", "Księga rachunku futures"),
-    ("fills", "Historia transakcji spot"),
+    ("spot", "Rejestr transakcji spot"),
+    ("futures", "Rejestr transakcji futures"),
+    ("fills", "Szczegóły transakcji spot"),
     ("positions", "Zamknięte pozycje futures"),
     ("earn", "Produkty Earn"),
     ("transfers", "Transfery wewnętrzne"),
@@ -63,14 +70,25 @@ def collect(
         fetch_deposits(client, cfg, prices, data)
         fetch_withdrawals(client, cfg, prices, data)
 
+    # Rejestry podatkowe sięgają ~2 lat wstecz - to podstawowe źródło historii.
+    # Księgi rachunków (90 dni) uruchamiamy tylko wtedy, gdy rejestr zawiódł.
     if step("spot", 3):
-        fetch_spot_bills(client, cfg, data)
+        fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS))
+        if not data.spot_ledger:
+            log.info("Rejestr spot pusty - sięgam po księgę rachunku (90 dni).")
+            fetch_spot_bills(client, cfg, data)
 
     if step("futures", 4):
-        fetch_futures_bills(client, cfg, data)
+        fetch_futures_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS))
+        if not data.futures_ledger:
+            log.info("Rejestr futures pusty - sięgam po księgę rachunku.")
+            fetch_futures_bills(client, cfg, data)
 
     if step("fills", 5):
         fetch_spot_fills(client, cfg, prices, data)
+        # Starsze zlecenia odtwarzamy z rejestru; granicą jest najstarsza
+        # transakcja pobrana dokładnym endpointem, żeby nic nie policzyć dwa razy.
+        synthesize_fills(data, prices, before_ts=oldest_fill_ts(data.fills))
 
     if step("positions", 6):
         fetch_closed_positions(client, cfg, data)

@@ -166,8 +166,9 @@ tunel SSH idzie po porcie 22, który i tak masz otwarty.
 2. **Sprawdź połączenie i uprawnienia** — potwierdzi, że klucz działa i że jest
    tylko do odczytu. Jeśli zobaczysz ostrzeżenie o uprawnieniu do wypłat, usuń
    klucz w Bitget i wygeneruj nowy.
-3. **Zakres analizy** — ustaw daty (zacznij od momentu pierwszej wpłaty na Bitget),
-   opcjonalnie kurs PLN, i kliknij „Analizuj".
+3. **Zakres analizy** — ustaw daty i opcjonalnie kurs PLN, potem „Analizuj".
+   Sensowne „Od" to data pierwszej wpłaty, ale **nie wcześniej niż 2 lata wstecz** —
+   dalej Bitget po prostu nie udostępnia historii transakcyjnej.
 4. **Wynik** — po zakończeniu zobaczysz realny zysk/stratę, rozbicie i tabele.
    Pliki CSV pobierzesz linkami na dole strony.
 
@@ -225,3 +226,4 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 | `[40012]` / `[40037]` | Zły klucz API albo klucz usunięty w Bitget |
 | Błąd o `_cffi_backend` przy starcie | `pip install --upgrade pip && pip install --force-reinstall cryptography` |
 | `Address already in use` | Port zajęty: `python3 panel.py --port 8771` (i tak samo popraw tunel) |
+| W pokryciu danych „limit historii API" | Normalne — Bitget nie oddaje danych sprzed ~2 lat. Brakujące wpłaty dopisz ręcznie (README, punkt 8) |

@@ -173,22 +173,36 @@ Najważniejsze opcje:
 
 ## 5. Co skrypt pobiera
 
-| Dane | Endpoint API v2 | Limit okna |
+| Dane | Endpoint API v2 | Jak daleko wstecz |
 |---|---|---|
-| Wpłaty | `/api/v2/spot/wallet/deposit-records` | 90 dni |
-| Wypłaty | `/api/v2/spot/wallet/withdrawal-records` | 90 dni |
-| Transfery wewnętrzne | `/api/v2/spot/account/transferRecords` | 90 dni, per moneta |
-| Księga spot | `/api/v2/spot/account/bills` | 90 dni |
-| Transakcje spot | `/api/v2/spot/trade/fills` | 90 dni |
-| Księga futures | `/api/v2/mix/account/bill` | **30 dni** |
+| Wpłaty | `/api/v2/spot/wallet/deposit-records` | pełna historia (okna 89 dni) |
+| Wypłaty | `/api/v2/spot/wallet/withdrawal-records` | pełna historia (okna 89 dni) |
+| **Rejestr spot** | `/api/v2/tax/spot-record` | **~2 lata** (okna 30 dni) |
+| **Rejestr futures** | `/api/v2/tax/future-record` | **~2 lata** (okna 30 dni) |
+| Szczegóły transakcji spot | `/api/v2/spot/trade/fills` | ~90 dni |
 | Zamknięte pozycje | `/api/v2/mix/position/history-position` | ~90 dni |
-| Earn | `/api/v2/earn/account/assets`, `/api/v2/earn/savings/assets`, `/api/v2/earn/savings/records` | 90 dni |
-| Wycena teraz | `/api/v2/account/all-account-balance` + salda spot / funding / futures / earn | — |
-| Kursy | `/api/v2/spot/market/tickers`, `/api/v2/spot/market/history-candles` (publiczne) | — |
+| Transfery wewnętrzne | `/api/v2/spot/account/transferRecords` | ~90 dni, per moneta |
+| Księga spot (awaryjnie) | `/api/v2/spot/account/bills` | ~90 dni |
+| Księga futures (awaryjnie) | `/api/v2/mix/account/bill` | okna 30 dni |
+| Earn | `/api/v2/earn/account/assets`, `/api/v2/earn/savings/*` | okna 89 dni |
+| Wycena teraz | `/api/v2/account/all-account-balance` + salda kont | — |
+| Kursy | `/api/v2/spot/market/tickers`, `history-candles` (publiczne) | — |
 
-Zakres jest automatycznie dzielony na okna zgodne z powyższymi limitami, a każde
-okno stronicowane kursorem `idLessThan` aż do wyczerpania rekordów. Powtórzenia
-na styku okien są odfiltrowywane po identyfikatorach.
+Podstawą historii są **rejestry podatkowe** (`tax/*-record`) — sięgają około dwóch
+lat, podczas gdy księgi rachunków oddają tylko ostatnie 90 dni. Księgi zostają
+jako źródło awaryjne, używane dopiero gdy rejestr nic nie zwróci.
+
+Zakres jest dzielony na okna **liczone wstecz od daty końcowej**, żeby najnowsze
+okno zawsze mieściło się w oknie retencji API. Idziemy od najnowszych do
+najstarszych i przerywamy, gdy API odmówi z powodu limitu historii — starsze
+okna i tak nie mają szans, a każde kosztowałoby zapytanie. Jeśli realna granica
+retencji okaże się węższa, niż zakłada skrypt, najnowsze okno jest automatycznie
+zawężane aż API je przyjmie.
+
+Błąd jednego okna **nigdy** nie unieważnia danych pobranych z okien nowszych —
+zamiast tego trafia do ostrzeżeń i do tabeli pokrycia. Każde okno jest
+stronicowane kursorem `idLessThan`, a powtórzenia na styku okien odfiltrowywane
+po identyfikatorach.
 
 Podpis żądania: `ACCESS-SIGN = base64(HMAC_SHA256(secret, timestamp + "GET" +
 ścieżka_z_query + body))`, zegar synchronizowany z `/api/v2/public/time`
@@ -278,10 +292,18 @@ Wzór pliku: `przyklad_dodatkowe_przeplywy.csv`.
 
 ## 9. Ograniczenia, o których warto wiedzieć
 
+- **Bitget przechowuje historię transakcyjną około 2 lat.** Ustawianie `--od`
+  wcześniej niż dwa lata wstecz nic nie da — skrypt i tak przytnie zakres do tego,
+  co API oddaje, i napisze o tym w ostrzeżeniach. Wpłaty i wypłaty bywają dostępne
+  dłużej; jeśli i one się urwą, dopisz je ręcznie (punkt 8).
 - **Wynik zrealizowany spot** wymaga pełnej historii zakupów. Sprzedaż monety
   kupionej przed początkiem zakresu nie ma znanej ceny nabycia — skrypt **nie
   dopisuje wtedy fikcyjnego zysku**, tylko wymienia takie pary w ostrzeżeniu.
-  Lekarstwo: rozszerz `--od`.
+- **Transakcje starsze niż 90 dni** są odtwarzane z rejestru podatkowego: dwa
+  wpisy o wspólnym `bizOrderId` (moneta wydana i otrzymana) dają parę, kierunek,
+  wolumen i cenę. To wystarcza do policzenia wyniku, ale jest odtworzeniem, nie
+  zapisem transakcji — prowizja może być liczona z dokładnością do zaokrągleń.
+  Dla ostatnich 90 dni używane są dokładne dane z `trade/fills`.
 - **Futures** liczone są z księgi rachunku (`amount + fee` dla wpisów innych niż
   transfery), co obejmuje P&L pozycji, funding fee i prowizje. Historia
   zamkniętych pozycji służy jako kontrola krzyżowa (API oddaje ~3 miesiące).
