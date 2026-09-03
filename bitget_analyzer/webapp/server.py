@@ -12,6 +12,7 @@ Zabezpieczenia:
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import secrets
@@ -232,6 +233,10 @@ class PanelHandler(BaseHTTPRequestHandler):
         )
 
 
+class PortBusyError(RuntimeError):
+    """Port panelu jest zajęty - najczęściej przez wcześniej uruchomiony panel."""
+
+
 class PanelServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -249,7 +254,19 @@ def create_server(
     """Tworzy serwer panelu i zwraca go razem z adresem do otwarcia."""
     token = secrets.token_urlsafe(24)
     service = PanelService(out_dir=out_dir)
-    server = PanelServer((host, port), service, token)
+    try:
+        server = PanelServer((host, port), service, token)
+    except OSError as exc:
+        if exc.errno != errno.EADDRINUSE:
+            raise
+        raise PortBusyError(
+            f"Port {port} jest już zajęty - prawdopodobnie panel nadal działa "
+            "w innym oknie lub w sesji tmux.\n\n"
+            "  Zatrzymaj poprzedni:   pkill -f 'python3 panel.py'\n"
+            f"  albo użyj innego:      python3 panel.py --port {port + 1}\n"
+            "  albo pozwól wybrać:    python3 panel.py --port 0\n\n"
+            "Przy zmianie portu popraw też tunel SSH po swojej stronie."
+        ) from exc
     actual_port = server.server_address[1]
     url = f"http://{host}:{actual_port}/?t={token}"
     return server, url

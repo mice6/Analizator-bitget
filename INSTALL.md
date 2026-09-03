@@ -225,5 +225,6 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 | `[40099]` albo błąd o IP | Publiczny adres serwera nie jest na whiteliście klucza (punkt 4) |
 | `[40012]` / `[40037]` | Zły klucz API albo klucz usunięty w Bitget |
 | Błąd o `_cffi_backend` przy starcie | `pip install --upgrade pip && pip install --force-reinstall cryptography` |
-| `Address already in use` | Port zajęty: `python3 panel.py --port 8771` (i tak samo popraw tunel) |
+| `Port 8770 jest już zajęty` | Panel działa w innym oknie: `pkill -f "python3 panel.py"`, albo wystartuj na innym porcie i popraw tunel |
+| `git pull` mówi „Already up to date", a poprawek nie ma | `git fetch origin && git reset --hard origin/claude/bitget-profitability-analyzer-xftfmy` |
 | W pokryciu danych „limit historii API" | Normalne — Bitget nie oddaje danych sprzed ~2 lat. Brakujące wpłaty dopisz ręcznie (README, punkt 8) |

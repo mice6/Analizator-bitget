@@ -318,3 +318,37 @@ class TestPrzebiegAnalizyWPanelu(unittest.TestCase):
             serialized = json.dumps(snapshot, ensure_ascii=False, default=str)
             for secret_value in (KEY, SECRET, PASSPHRASE):
                 self.assertNotIn(secret_value, serialized)
+
+
+class TestZajetyPort(unittest.TestCase):
+    """Zajęty port ma dawać instrukcję, a nie traceback."""
+
+    def test_czytelny_komunikat(self):
+        from bitget_analyzer.webapp.server import PortBusyError, create_server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["BITGET_ANALYZER_HOME"] = str(Path(tmp) / "dane")
+            self.addCleanup(os.environ.pop, "BITGET_ANALYZER_HOME", None)
+
+            first, _ = create_server("127.0.0.1", 0, tmp)
+            self.addCleanup(first.server_close)
+            busy_port = first.server_address[1]
+
+            with self.assertRaises(PortBusyError) as ctx:
+                create_server("127.0.0.1", busy_port, tmp)
+
+            message = str(ctx.exception)
+            self.assertIn("pkill", message)
+            self.assertIn(str(busy_port + 1), message)
+            self.assertIn("tunel SSH", message)
+
+    def test_port_zero_wybiera_wolny(self):
+        from bitget_analyzer.webapp.server import create_server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            os.environ["BITGET_ANALYZER_HOME"] = str(Path(tmp) / "dane")
+            self.addCleanup(os.environ.pop, "BITGET_ANALYZER_HOME", None)
+            server, url = create_server("127.0.0.1", 0, tmp)
+            self.addCleanup(server.server_close)
+            self.assertGreater(server.server_address[1], 0)
+            self.assertIn(str(server.server_address[1]), url)

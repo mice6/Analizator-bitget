@@ -22,7 +22,7 @@ import sys
 import webbrowser
 
 from bitget_analyzer import __version__
-from bitget_analyzer.webapp.server import create_server, serve
+from bitget_analyzer.webapp.server import PortBusyError, create_server, serve
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -49,12 +49,15 @@ def main(argv=None) -> int:
     )
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-    if not args.otworz:
-        serve(args.host, args.port, args.out)
-        return 0
-
-    # Przy --otworz musimy znać adres przed wystartowaniem pętli serwera.
-    server, url = create_server(args.host, args.port, args.out)
+    try:
+        if not args.otworz:
+            serve(args.host, args.port, args.out)
+            return 0
+        # Przy --otworz musimy znać adres przed wystartowaniem pętli serwera.
+        server, url = create_server(args.host, args.port, args.out)
+    except PortBusyError as exc:
+        print(f"\n{exc}\n", file=sys.stderr)
+        return 2
     import threading
 
     thread = threading.Thread(target=server.serve_forever, daemon=True, name="panel")
