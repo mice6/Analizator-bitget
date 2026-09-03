@@ -41,7 +41,7 @@ GROUP_CATEGORY = {
     "withdraw": CAT_WITHDRAW,
     "transaction": CAT_TRADE,
     "transfer": CAT_TRANSFER,
-    "financial": CAT_EARN,
+    "financial": CAT_EARN,   # doprecyzowane w _financial_category()
     "strategy": CAT_TRADE,   # boty (grid/martingale) rozliczane na spocie
     "convert": CAT_TRADE,
     "loan": CAT_OTHER,
@@ -51,6 +51,29 @@ GROUP_CATEGORY = {
     "on_chain": CAT_OTHER,
     "other": CAT_OTHER,
 }
+
+# W grupie "financial" siedzą zarówno odsetki, jak i samo przeniesienie
+# kapitału do produktu Earn i z powrotem. Bez rozróżnienia subskrypcja
+# wyglądałaby jak gigantyczna ujemna "odsetka".
+EARN_PRINCIPAL_KEYWORDS = (
+    "subscribe", "subscription", "redeem", "redemption", "purchase",
+    "transfer", "deposit", "withdraw", "principal", "stake", "unstake",
+)
+EARN_INCOME_KEYWORDS = (
+    "interest", "profit", "earning", "yield", "reward", "bonus", "coupon",
+)
+
+
+def _financial_category(business_type: str) -> str:
+    """Odsetki to przychód; subskrypcja i wykup to przesunięcie środków."""
+    lowered = (business_type or "").lower()
+    if any(word in lowered for word in EARN_INCOME_KEYWORDS):
+        return CAT_EARN
+    if any(word in lowered for word in EARN_PRINCIPAL_KEYWORDS):
+        return CAT_TRANSFER
+    # Nieznany typ: nie zgadujemy, że to zysk.
+    return CAT_TRANSFER
+
 
 REWARD_BUSINESS_TYPES = {
     "REBATE_REWARDS",
@@ -83,6 +106,8 @@ def fetch_spot_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
         group = str(row.get("groupType", "")).lower()
         business = str(row.get("businessType", ""))
         category = GROUP_CATEGORY.get(group, CAT_OTHER)
+        if group == "financial":
+            category = _financial_category(business)
         if business.upper() in REWARD_BUSINESS_TYPES:
             category = CAT_REWARD
 

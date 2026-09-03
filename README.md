@@ -251,7 +251,12 @@ Podpis żądania: `ACCESS-SIGN = base64(HMAC_SHA256(secret, timestamp + "GET" +
 ## 6. Jak czytać raport
 
 ### Sekcja 3 — REALNY ZYSK / STRATA
-Twarda liczba. Wpłaty i wypłaty są wyceniane **kursem z dnia operacji**, a nie
+Twarda liczba. Wpłaty i wypłaty są zawsze pobierane **za całe życie konta**,
+niezależnie od wybranego zakresu analizy — wzór porównuje dzisiejszy majątek
+z całym wniesionym kapitałem, więc ucięcie wpłat do wybranego okna pokazywałoby
+fikcyjny zysk. Zakres dat steruje wyłącznie rozbiciem miesięcznym i atrybucją.
+
+Wpłaty i wypłaty są wyceniane **kursem z dnia operacji**, a nie
 dzisiejszym — inaczej wpłata 0,1 BTC z 2023 r. zafałszowałaby cały wynik.
 Prowizja za wypłatę jest kosztem, więc jako "odzyskany kapitał" liczy się kwota
 netto (`size − fee`).

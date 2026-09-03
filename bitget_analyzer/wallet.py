@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import List, Optional
 
 from .client import BitgetClient, dedupe
-from .limits import SHORT_HISTORY_DAYS, effective_start, window_guard
+from .limits import (
+    FLOWS_HISTORY_DAYS,
+    SHORT_HISTORY_DAYS,
+    effective_start,
+    lifetime_start,
+    window_guard,
+)
 from .config import Config
 from .model import Dataset, ExternalFlow, Transfer, to_float
 from .prices import PriceBook
@@ -48,13 +54,13 @@ def _is_success(row: dict) -> bool:
 
 
 def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
-    """Historia wpłat (środki przychodzące z zewnątrz)."""
+    """Historia wpłat - zawsze za całe życie konta, nie za wybrany zakres."""
     coverage = data.coverage_for("wpłaty")
     rows = dedupe(
         client.paginate_windows(
             DEPOSIT_PATH,
             {},
-            cfg.start_ms,
+            lifetime_start(cfg, FLOWS_HISTORY_DAYS),
             cfg.end_ms,
             WALLET_WINDOW_DAYS,
             stop_after_empty=EMPTY_WINDOWS_LIMIT,
@@ -97,13 +103,13 @@ def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: D
 
 
 def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
-    """Historia wypłat (środki wychodzące poza giełdę)."""
+    """Historia wypłat - zawsze za całe życie konta, nie za wybrany zakres."""
     coverage = data.coverage_for("wypłaty")
     rows = dedupe(
         client.paginate_windows(
             WITHDRAW_PATH,
             {},
-            cfg.start_ms,
+            lifetime_start(cfg, FLOWS_HISTORY_DAYS),
             cfg.end_ms,
             WALLET_WINDOW_DAYS,
             stop_after_empty=EMPTY_WINDOWS_LIMIT,

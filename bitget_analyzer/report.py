@@ -62,13 +62,17 @@ class Reporter:
             print(f" Waluta raportu: {cfg.fx_label} (kurs 1 USDT = {cfg.fx_rate} {cfg.fx_label})")
         print(LINE)
 
-        print("\n1. KAPITAŁ Z ZEWNĄTRZ (wyceniony kursem z dnia operacji)")
+        print("\n1. KAPITAŁ Z ZEWNĄTRZ (całe życie konta, kurs z dnia operacji)")
         print(THIN)
         deposits_label = plural(len(self.data.deposits), "operacja", "operacje", "operacji")
         withdrawals_label = plural(len(self.data.withdrawals), "operacja", "operacje", "operacji")
         print(f"   Wpłaty:                {show(a.deposits_total):>22}   ({deposits_label})")
         print(f"   Wypłaty:               {show(a.withdrawals_total):>22}   ({withdrawals_label})")
         print(f"   Kapitał netto na giełdzie: {show(a.deposits_total - a.withdrawals_total):>18}")
+        print(
+            "   (Wpłaty i wypłaty liczone od początku konta, niezależnie od zakresu\n"
+            "    analizy - inaczej wynik byłby zawyżony o kapitał wniesiony wcześniej.)"
+        )
 
         print("\n2. AKTUALNA WARTOŚĆ AKTYWÓW")
         print(THIN)

@@ -49,6 +49,14 @@ TRADE_RECONSTRUCTION_LIMIT = 20_000
 QUOTE_COINS = set(STABLECOINS) | {"BTC", "ETH", "BGB", "EUR", "BRL", "TRY"}
 
 SPOT_TYPE_KEYWORDS = (
+    # Kolejność ma znaczenie: "subscribe"/"redeem" muszą wygrać z "earn",
+    # bo to przesunięcie kapitału do produktu, a nie zysk.
+    ("subscribe", CAT_TRANSFER),
+    ("subscription", CAT_TRANSFER),
+    ("redeem", CAT_TRANSFER),
+    ("redemption", CAT_TRANSFER),
+    ("principal", CAT_TRANSFER),
+    ("stake", CAT_TRANSFER),
     ("deposit", CAT_DEPOSIT),
     ("withdraw", CAT_WITHDRAW),
     ("transfer", CAT_TRANSFER),

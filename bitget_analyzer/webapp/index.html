@@ -408,8 +408,10 @@ function renderResult(r, files, dir) {
          Object.entries(r.wartosc_aktywow_wg_konta || {})
            .filter(([, v]) => Math.abs(v) > 0.005)
            .map(([k, v]) => k + ": " + fmt(v)).join(" &middot; ") || "&nbsp;") +
-    card("", "Wpłaty z zewnątrz", money(r.wplaty_usdt), r.liczba_wplat + " operacji, kurs z dnia operacji") +
-    card("", "Wypłaty na zewnątrz", money(r.wyplaty_usdt), r.liczba_wyplat + " operacji, po odjęciu prowizji");
+    card("", "Wpłaty z zewnątrz", money(r.wplaty_usdt),
+         r.liczba_wplat + " operacji &middot; całe życie konta, kurs z dnia operacji") +
+    card("", "Wypłaty na zewnątrz", money(r.wyplaty_usdt),
+         r.liczba_wyplat + " operacji &middot; po odjęciu prowizji");
 
   const s = r.skladniki;
   $("verdict").innerHTML =

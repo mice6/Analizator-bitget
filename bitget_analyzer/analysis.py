@@ -17,6 +17,8 @@ from .model import (
     Dataset,
     LedgerEntry,
     RealizedTrade,
+    month_key,
+    to_float,
 )
 from .prices import STABLECOINS, PriceBook
 
@@ -218,6 +220,37 @@ class Analyzer:
         self._uncovered = sorted(uncovered)
         return dict(positions)
 
+    def _futures_from_positions(self, row_for) -> None:
+        """Wynik futures odtworzony z historii zamkniętych pozycji.
+
+        `netProfit` zawiera już prowizje i funding, więc rozbijamy go na
+        składniki, żeby nic nie policzyć dwa razy.
+        """
+        count = 0
+        for position in self.data.closed_positions:
+            ts = int(position.get("_ts") or 0)
+            if not ts:
+                continue
+            coin = str(position.get("marginCoin") or "USDT").upper()
+            net = to_float(position.get("netProfit"))
+            fees = to_float(position.get("openFee")) + to_float(position.get("closeFee"))
+            funding = to_float(position.get("totalFunding"))
+            gross = net - fees - funding
+
+            row = row_for(month_key(ts))
+            row.futures_pnl += self.to_usd(coin, gross, ts)
+            row.futures_fees += self.to_usd(coin, fees, ts)
+            row.futures_funding += self.to_usd(coin, funding, ts)
+            count += 1
+
+        if count:
+            self.data.warn(
+                f"Wynik futures policzony z {count} zamkniętych pozycji "
+                "(księga rachunku nic nie zwróciła). Historia pozycji obejmuje "
+                "tylko ostatnie ~90 dni, więc starsze miesiące mogą być puste."
+            )
+            log.info("Futures: wynik odtworzony z %d zamkniętych pozycji.", count)
+
     # ------------------------------------------------------- bilans miesięczny
 
     def _ledger_rows(self) -> List[LedgerEntry]:
@@ -296,6 +329,14 @@ class Analyzer:
                 row.rewards += amount_usd
             else:
                 row.other += amount_usd
+
+        # 3b. Gdy księga futures nic nie dała, sięgamy po zamknięte pozycje.
+        # Historia pozycji obejmuje ~90 dni, ale to lepsze niż zero.
+        if not any(
+            entry.category in (CAT_TRADE, CAT_FUNDING, CAT_LIQUIDATION)
+            for entry in self.data.futures_ledger
+        ) and self.data.closed_positions:
+            self._futures_from_positions(row_for)
 
         # 4. Spot - pozycje spoza handlu (odsetki, nagrody, korekty).
         for entry in self.data.spot_ledger:

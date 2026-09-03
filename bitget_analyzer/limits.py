@@ -17,6 +17,12 @@ API_HISTORY_DAYS = 730
 # Endpointy ksiąg i transakcji sięgają tylko ~90 dni; dajemy mały zapas.
 SHORT_HISTORY_DAYS = 89
 
+# Wpłaty i wypłaty MUSZĄ obejmować całe życie konta, niezależnie od wybranego
+# zakresu analizy. Inaczej wzór "aktywa - wpłaty + wypłaty" odejmowałby kapitał
+# wniesiony w kilku miesiącach od majątku zgromadzonego przez lata i pokazywał
+# fikcyjny zysk. Pobieranie przerywa się samo po serii pustych okresów.
+FLOWS_HISTORY_DAYS = 2200
+
 
 def effective_start(cfg, history_days: int) -> int:
     """Początek zakresu przycięty do tego, co dane źródło w ogóle oddaje.
@@ -24,8 +30,22 @@ def effective_start(cfg, history_days: int) -> int:
     Bez tego skrypt wysyłałby setki zapytań o okresy, na które API i tak
     odpowie błędem albo pustką.
     """
-    floor_ms = int((datetime.now(timezone.utc) - timedelta(days=history_days)).timestamp() * 1000)
+    floor_ms = _days_back(history_days)
     return max(cfg.start_ms, floor_ms)
+
+
+def lifetime_start(cfg, history_days: int) -> int:
+    """Początek zakresu ROZSZERZONY wstecz, niezależnie od wyboru użytkownika.
+
+    Używane dla wpłat i wypłat: wzór "aktywa - wpłaty + wypłaty" porównuje
+    dzisiejszy majątek z całym wniesionym kapitałem, więc ucięcie wpłat do
+    wybranego okna dałoby fikcyjny zysk.
+    """
+    return min(cfg.start_ms, _days_back(history_days))
+
+
+def _days_back(days: int) -> int:
+    return int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp() * 1000)
 
 
 def window_guard(

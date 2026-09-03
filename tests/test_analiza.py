@@ -344,6 +344,96 @@ class TestRejestrPodatkowy(unittest.TestCase):
         self.assertTrue(any("Nie udało się odtworzyć" in w for w in data.warnings))
 
 
+class TestKapitaluZaCaleZycieKonta(unittest.TestCase):
+    """Wąski zakres analizy nie może uciąć wpłat - inaczej wynik jest zawyżony."""
+
+    def test_wplaty_spoza_zakresu_sa_liczone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            cfg.requests_per_second = 0
+            # Użytkownik pyta tylko o ostatnie 30 dni...
+            cfg.start = NOW - timedelta(days=30)
+            _, analysis, _ = build_dataset(cfg, FakeClient(cfg))
+
+        # ...ale wpłaty sprzed 200 i 180 dni muszą wejść do wyniku.
+        self.assertAlmostEqual(analysis.deposits_total, 5500.0, places=6)
+        self.assertAlmostEqual(analysis.withdrawals_total, 499.0, places=6)
+        self.assertAlmostEqual(analysis.real_pnl, 499.0, places=6)
+
+    def test_wynik_nie_zalezy_od_szerokosci_zakresu(self):
+        wyniki = []
+        for dni in (30, 120, 400):
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = make_config(Path(tmp))
+                cfg.requests_per_second = 0
+                cfg.start = NOW - timedelta(days=dni)
+                _, analysis, _ = build_dataset(cfg, FakeClient(cfg))
+                wyniki.append(round(analysis.real_pnl, 6))
+        self.assertEqual(len(set(wyniki)), 1, f"wynik zmienia się z zakresem: {wyniki}")
+
+
+class TestKlasyfikacjiEarn(unittest.TestCase):
+    """Wpłata do Earn to przesunięcie kapitału, nie ujemne odsetki."""
+
+    def test_grupa_financial_w_ksiedze(self):
+        from bitget_analyzer.spot import _financial_category
+
+        self.assertEqual(_financial_category("INTEREST"), "earn")
+        self.assertEqual(_financial_category("SAVINGS_PROFIT"), "earn")
+        self.assertEqual(_financial_category("SUBSCRIBE"), "transfer")
+        self.assertEqual(_financial_category("SAVINGS_REDEEM"), "transfer")
+        self.assertEqual(_financial_category("PRINCIPAL_RETURN"), "transfer")
+        # Nieznany typ nie może zostać uznany za zysk.
+        self.assertEqual(_financial_category("COS_NOWEGO"), "transfer")
+
+    def test_rejestr_podatkowy(self):
+        self.assertEqual(classify_spot_tax("Subscribe"), "transfer")
+        self.assertEqual(classify_spot_tax("Savings redeem"), "transfer")
+        self.assertEqual(classify_spot_tax("Interest"), "earn")
+        self.assertEqual(classify_spot_tax("Savings interest"), "earn")
+
+
+class TestFuturesZPozycji(unittest.TestCase):
+    """Gdy księga futures milczy, wynik liczymy z zamkniętych pozycji."""
+
+    def test_rozbicie_netProfit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            data = Dataset()
+            data.closed_positions.append(
+                {
+                    "_ts": days_ago(20), "marginCoin": "USDT",
+                    "netProfit": "100", "openFee": "-0.6", "closeFee": "-0.4",
+                    "totalFunding": "-3",
+                }
+            )
+            analysis = Analyzer(data, prices).build()
+
+        # netProfit zawiera prowizje i funding - rozbijamy bez podwójnego liczenia.
+        self.assertAlmostEqual(analysis.futures_fees_total, -1.0, places=6)
+        self.assertAlmostEqual(analysis.futures_funding_total, -3.0, places=6)
+        self.assertAlmostEqual(analysis.futures_pnl_total, 104.0, places=6)
+        suma = (
+            analysis.futures_pnl_total
+            + analysis.futures_fees_total
+            + analysis.futures_funding_total
+        )
+        self.assertAlmostEqual(suma, 100.0, places=6, msg="suma musi dać netProfit")
+        self.assertTrue(any("zamkniętych pozycji" in w for w in data.warnings))
+
+    def test_ksiega_ma_pierwszenstwo(self):
+        """Mając księgę, nie dubluj wyniku pozycjami."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            data, analysis, _ = build_dataset(cfg, FakeClient(cfg))
+            data.closed_positions.append(
+                {"_ts": days_ago(20), "marginCoin": "USDT", "netProfit": "9999"}
+            )
+            powtorzona = Analyzer(data, PriceBook(FakeClient(cfg))).build()
+        self.assertAlmostEqual(powtorzona.futures_pnl_total, 100.0, places=6)
+
+
 class TestSprzedazBezHistorii(unittest.TestCase):
     """Sprzedaż monety kupionej przed początkiem zakresu nie może udawać zysku."""
 
