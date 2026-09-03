@@ -80,6 +80,21 @@ FIXTURES = {
         {"id": "f2", "symbol": "BTCUSDT", "marginCoin": "USDT", "futureTaxType": "contract_settle_fee", "amount": "-3", "fee": "0", "ts": str(days_ago(34))},
         {"id": "f3", "symbol": "", "marginCoin": "USDT", "futureTaxType": "trans_from_exchange", "amount": "300", "fee": "0", "ts": str(days_ago(45))},
     ],
+    # Księgi rachunków - ścieżka awaryjna i tryb szybki (90 dni).
+    "/api/v2/spot/account/bills": [
+        {"billId": "b1", "coin": "USDT", "groupType": "financial", "businessType": "INTEREST",
+         "size": "2", "fees": "0", "cTime": str(days_ago(40))},
+        {"billId": "b2", "coin": "USDT", "groupType": "transaction", "businessType": "SELL",
+         "size": "5000", "fees": "-5", "cTime": str(days_ago(30))},
+        {"billId": "b3", "coin": "USDT", "groupType": "transfer", "businessType": "TRANSFER_OUT",
+         "size": "-300", "fees": "0", "cTime": str(days_ago(45))},
+    ],
+    "/api/v2/mix/account/bill": [
+        {"billId": "m1", "coin": "USDT", "businessType": "close_long", "amount": "100",
+         "fee": "-0.5", "symbol": "BTCUSDT", "cTime": str(days_ago(35))},
+        {"billId": "m2", "coin": "USDT", "businessType": "contract_settle_fee", "amount": "-3",
+         "fee": "0", "symbol": "BTCUSDT", "cTime": str(days_ago(34))},
+    ],
     # Dokładne transakcje - tylko ostatnie 90 dni.
     "/api/v2/spot/trade/fills": [
         {"tradeId": "f1", "orderId": "o1", "symbol": "BTCUSDT", "side": "buy", "priceAvg": "40000", "size": "0.1", "amount": "4000",

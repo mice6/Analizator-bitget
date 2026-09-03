@@ -387,4 +387,7 @@ class TestTrybuHistorii(unittest.TestCase):
         # Zamiast tego wchodzi księga rachunku.
         bills = [p for p, _ in client.calls if "account/bills" in p]
         self.assertTrue(bills, "powinien sięgnąć po księgę spot")
+        # Dane pochodzą wtedy z księgi rachunku, nie z rejestru.
         self.assertTrue(data.spot_ledger)
+        self.assertTrue(data.futures_ledger)
+        self.assertTrue(any(e.category == "earn" for e in data.spot_ledger))
