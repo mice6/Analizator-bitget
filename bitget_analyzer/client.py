@@ -54,6 +54,15 @@ RANGE_ERROR_MARKERS = (
     "exceed",
 )
 
+# Limity zapytań narzucone przez Bitget dla konkretnych endpointów
+# (reszta korzysta z globalnego ustawienia --rps).
+ENDPOINT_RATE_LIMITS = {
+    "/api/v2/tax/spot-record": 1.0,
+    "/api/v2/tax/future-record": 1.0,
+    "/api/v2/tax/margin-record": 1.0,
+    "/api/v2/tax/p2p-record": 1.0,
+}
+
 # Kody oznaczające brak uprawnień - nie ma sensu ponawiać, ale nie przerywamy
 # całej analizy (np. klucz bez dostępu do Earn).
 PERMISSION_CODES = {"40014", "40012", "40037", "40034", "40309"}
@@ -98,6 +107,11 @@ class RateLimiter:
     def __init__(self, requests_per_second: float):
         self.min_interval = 1.0 / requests_per_second if requests_per_second > 0 else 0.0
         self._last = 0.0
+
+    def slow_down(self, factor: float = 2.0, ceiling: float = 5.0) -> float:
+        """Zwalnia po odbiciu przez API - limity bywają inne niż w dokumentacji."""
+        self.min_interval = min(max(self.min_interval * factor, 0.25), ceiling)
+        return self.min_interval
 
     def wait(self) -> None:
         if self.min_interval <= 0:
@@ -149,6 +163,8 @@ class BitgetClient:
         self.session = session or requests.Session()
         self.session.headers.update({"User-Agent": "analizator-bitget/1.0 (read-only)"})
         self._limiter = RateLimiter(cfg.requests_per_second)
+        self._endpoint_limiters: Dict[str, RateLimiter] = {}
+        self._throttled: set = set()
         self._time_offset_ms = 0
         self.request_count = 0
         self.retry_count = 0
@@ -181,6 +197,18 @@ class BitgetClient:
                 log.info(
                     "Korekta czasu względem serwera Bitget: %+d ms", self._time_offset_ms
                 )
+
+    def _rate_for(self, path: str) -> float:
+        configured = self.cfg.requests_per_second
+        if configured <= 0:
+            return 0.0
+        endpoint_limit = ENDPOINT_RATE_LIMITS.get(path)
+        return min(endpoint_limit, configured) if endpoint_limit else configured
+
+    def _limiter_for(self, path: str) -> RateLimiter:
+        if path not in self._endpoint_limiters:
+            self._endpoint_limiters[path] = RateLimiter(self._rate_for(path))
+        return self._endpoint_limiters[path]
 
     # --------------------------------------------------------------- request
 
@@ -217,6 +245,7 @@ class BitgetClient:
                 )
 
             self._limiter.wait()
+            self._limiter_for(path).wait()
             self.request_count += 1
             try:
                 response = self.session.request(
@@ -227,7 +256,14 @@ class BitgetClient:
                 self._backoff(attempt, f"błąd sieci: {exc}")
                 continue
 
-            if response.status_code == 429 or response.status_code >= 500:
+            if response.status_code == 429:
+                last_error = RuntimeError("HTTP 429")
+                self._throttle(path, response.headers.get("Retry-After"))
+                self._backoff(attempt, f"limit zapytań na {path}", quiet=path in self._throttled)
+                self._throttled.add(path)
+                continue
+
+            if response.status_code >= 500:
                 last_error = RuntimeError(f"HTTP {response.status_code}")
                 self._backoff(attempt, f"HTTP {response.status_code} z {path}")
                 continue
@@ -246,19 +282,43 @@ class BitgetClient:
             msg = str(payload.get("msg", ""))
             if code in RETRYABLE_CODES or "frequen" in msg.lower() or "too many" in msg.lower():
                 last_error = BitgetError(code, msg, path)
-                self._backoff(attempt, f"limit zapytań ({code} {msg})")
+                self._throttle(path, None)
+                self._backoff(
+                    attempt, f"limit zapytań ({code} {msg})", quiet=path in self._throttled
+                )
+                self._throttled.add(path)
                 continue
 
             raise BitgetError(code, msg, path)
 
         raise RuntimeError(f"Nie udało się pobrać {path}: {last_error}")
 
-    def _backoff(self, attempt: int, reason: str) -> None:
+    def _throttle(self, path: str, retry_after: Optional[str]) -> None:
+        """Trwale zwalnia dany endpoint, żeby nie odbijać się od limitu w kółko."""
+        interval = self._limiter_for(path).slow_down()
+        if path not in self._throttled:
+            log.info(
+                "Zwalniam zapytania do %s do ~%.1f/s (limit po stronie Bitget).",
+                path,
+                1.0 / interval if interval else 0.0,
+            )
+        if retry_after:
+            try:
+                time.sleep(min(float(retry_after), 10.0))
+            except (TypeError, ValueError):
+                pass
+
+    def _backoff(self, attempt: int, reason: str, quiet: bool = False) -> None:
         if attempt >= self.cfg.max_retries:
             return
         self.retry_count += 1
         delay = min(2 ** attempt, 16) + random.uniform(0, 0.5)
-        log.warning("Ponawiam za %.1fs (%s)", delay, reason)
+        log.log(
+            logging.DEBUG if quiet else logging.WARNING,
+            "Ponawiam za %.1fs (%s)",
+            delay,
+            reason,
+        )
         time.sleep(delay)
 
     # -------------------------------------------------------------- paginacja

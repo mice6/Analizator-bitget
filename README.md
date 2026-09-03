@@ -165,7 +165,7 @@ Najważniejsze opcje:
 | `--dodatkowe-przeplywy PLIK.csv` | ręczne uzupełnienie starych wpłat/wypłat |
 | `--skip` | pomiń moduły: `wallet,spot,fills,futures,positions,earn,transfers` |
 | `--product-types` | domyślnie `USDT-FUTURES,COIN-FUTURES,USDC-FUTURES` |
-| `--rps` | limit żądań na sekundę (domyślnie 8) |
+| `--rps` | globalny limit żądań na sekundę (domyślnie 8) |
 | `--csv-sep`, `--csv-decimal` | domyślnie `;` i `,` — CSV otwiera się wprost w polskim Excelu |
 | `--json` | dodatkowo `raport/raport.json` |
 
@@ -187,6 +187,11 @@ Najważniejsze opcje:
 | Earn | `/api/v2/earn/account/assets`, `/api/v2/earn/savings/*` | okna 89 dni |
 | Wycena teraz | `/api/v2/account/all-account-balance` + salda kont | — |
 | Kursy | `/api/v2/spot/market/tickers`, `history-candles` (publiczne) | — |
+
+Rejestry podatkowe mają własny limit **1 zapytanie na sekundę** (reszta endpointów
+znosi 8–10), więc skrypt zwalnia dla nich automatycznie i przy odbiciu przez API
+dodatkowo obniża tempo dla tego konkretnego endpointu. Pobranie dwóch lat historii
+zajmuje przez to około minuty.
 
 Podstawą historii są **rejestry podatkowe** (`tax/*-record`) — sięgają około dwóch
 lat, podczas gdy księgi rachunków oddają tylko ostatnie 90 dni. Księgi zostają

@@ -382,6 +382,53 @@ class TestPodpisIPaginacja(unittest.TestCase):
         self.assertEqual(BitgetClient._next_cursor(rows, "billId"), "20")
 
 
+class TestLimitowZapytan(unittest.TestCase):
+    """Endpointy podatkowe mają limit 1 zapytanie/s - dużo ostrzejszy od reszty."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = make_config(Path(self.tmp.name))
+        self.cfg.requests_per_second = 8.0
+        self.client = BitgetClient(self.cfg)
+
+    def test_wolniej_dla_rejestrow_podatkowych(self):
+        self.assertEqual(self.client._rate_for("/api/v2/tax/spot-record"), 1.0)
+        self.assertEqual(self.client._rate_for("/api/v2/tax/future-record"), 1.0)
+        self.assertEqual(self.client._rate_for("/api/v2/spot/account/bills"), 8.0)
+
+    def test_globalne_ustawienie_nie_moze_przyspieszyc(self):
+        self.cfg.requests_per_second = 0.5
+        client = BitgetClient(self.cfg)
+        self.assertEqual(client._rate_for("/api/v2/tax/spot-record"), 0.5)
+
+    def test_zero_oznacza_brak_limitu(self):
+        self.cfg.requests_per_second = 0
+        client = BitgetClient(self.cfg)
+        self.assertEqual(client._rate_for("/api/v2/tax/spot-record"), 0.0)
+
+    def test_adaptacyjne_zwalnianie(self):
+        limiter = self.client._limiter_for("/api/v2/tax/spot-record")
+        self.assertAlmostEqual(limiter.min_interval, 1.0)
+        self.assertAlmostEqual(limiter.slow_down(), 2.0)
+        self.assertAlmostEqual(limiter.slow_down(), 4.0)
+        # Sufit chroni przed zatrzymaniem analizy na zawsze.
+        limiter.slow_down()
+        self.assertAlmostEqual(limiter.min_interval, 5.0)
+        self.assertAlmostEqual(limiter.slow_down(), 5.0)
+
+    def test_zwalnianie_rusza_z_zera(self):
+        limiter = self.client._limiter_for("/api/v2/spot/account/bills")
+        limiter.min_interval = 0.0
+        self.assertAlmostEqual(limiter.slow_down(), 0.25)
+
+    def test_limity_sa_niezalezne_per_endpoint(self):
+        self.client._limiter_for("/api/v2/tax/spot-record").slow_down()
+        self.assertAlmostEqual(
+            self.client._limiter_for("/api/v2/spot/account/bills").min_interval, 0.125
+        )
+
+
 class TestDodatkowePrzeplywy(unittest.TestCase):
     """Ręczne uzupełnienie historii starszej niż limity API."""
 
