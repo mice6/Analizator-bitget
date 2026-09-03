@@ -79,6 +79,11 @@ podajesz ręcznie.
 
 ## 2. Instalacja
 
+Stawiasz to na serwerze (Oracle Cloud, VPS)? Pełna instrukcja krok po kroku,
+razem z tunelem SSH i whitelistą IP: **[INSTALL.md](INSTALL.md)**.
+
+Lokalnie wystarczy:
+
 ```bash
 git clone <adres-repo> Analizator-bitget
 cd Analizator-bitget
