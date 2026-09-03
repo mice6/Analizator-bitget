@@ -21,18 +21,29 @@ cat /etc/os-release | head -2
 python3 --version
 ```
 
-Potrzebny jest **Python 3.9 lub nowszy**. Jeśli go brakuje albo jest za stary:
+Potrzebny jest **Python 3.9 lub nowszy**.
+
+Pakiety trzeba doinstalować **zawsze**, nawet jeśli `python3 --version` pokazuje
+dobrą wersję: Ubuntu nie ma domyślnie `venv` ani `pip`, a bez nich krok 3 padnie
+komunikatem *„ensurepip is not available"*.
+
+**Ubuntu / Debian (apt):**
+```bash
+sudo apt update
+sudo apt install -y git python3-venv python3-pip
+```
+
+Jeśli `python3-venv` nie znajdzie się w repozytorium, podaj wersję wprost —
+dla Ubuntu 22.04 (Python 3.10) będzie to:
+
+```bash
+sudo apt install -y python3.10-venv
+```
 
 **Oracle Linux / RHEL / Rocky (dnf):**
 ```bash
 sudo dnf install -y git python3.11 python3.11-pip
 # dalej używaj wtedy 'python3.11' zamiast 'python3'
-```
-
-**Ubuntu / Debian (apt):**
-```bash
-sudo apt update
-sudo apt install -y git python3 python3-venv python3-pip
 ```
 
 ---
@@ -57,12 +68,18 @@ cd ~/Analizator-bitget && git pull
 
 ## 3. Środowisko wirtualne i zależności
 
+Wykonuj te komendy **pojedynczo** i sprawdzaj wynik każdej — gdy pierwsza padnie,
+kolejne nie mają na czym pracować i posypią się kaskadą:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip        # WAŻNE: stary pip próbuje kompilować cryptography ze źródeł
 pip install -r requirements.txt
 ```
+
+Po `source .venv/bin/activate` w wierszu poleceń powinno pojawić się `(.venv)`.
+Jeśli go nie ma, środowisko nie powstało — wróć do punktu 1.
 
 Jeśli `pip install` mimo to próbuje kompilować `cryptography` (długo mieli, sypie
 błędami o `rust` albo `openssl`), doinstaluj narzędzia budowania:
@@ -200,6 +217,8 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 | Objaw | Przyczyna i rozwiązanie |
 |---|---|
 | `python3: command not found` albo wersja < 3.9 | Zainstaluj nowszego Pythona (punkt 1) i używaj np. `python3.11` |
+| `ensurepip is not available` przy tworzeniu venv | Brak pakietu venv: `sudo apt install -y python3-venv` (albo wprost `python3.10-venv`), potem powtórz krok 3 |
+| `Command 'pip' not found` | Venv nie powstał albo nie jest aktywny — sprawdź `(.venv)` w wierszu poleceń |
 | Przeglądarka: „nie można połączyć" | Tunel SSH nie działa — sprawdź okno z `ssh -L`, czy nadal jest otwarte |
 | Panel odpowiada `401` | Zły albo brakujący token — użyj pełnego adresu z `?t=...` wypisanego przy starcie |
 | `[40099]` albo błąd o IP | Publiczny adres serwera nie jest na whiteliście klucza (punkt 4) |
