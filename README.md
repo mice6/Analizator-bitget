@@ -188,10 +188,12 @@ Najważniejsze opcje:
 | Wycena teraz | `/api/v2/account/all-account-balance` + salda kont | — |
 | Kursy | `/api/v2/spot/market/tickers`, `history-candles` (publiczne) | — |
 
-Rejestry podatkowe mają własny limit **1 zapytanie na sekundę** (reszta endpointów
-znosi 8–10), więc skrypt zwalnia dla nich automatycznie i przy odbiciu przez API
-dodatkowo obniża tempo dla tego konkretnego endpointu. Pobranie dwóch lat historii
-zajmuje przez to około minuty.
+Rodzina `tax/*` jest rozliczana przez Bitget **wspólnym limitem 1 zapytania na
+sekundę** (reszta endpointów znosi 8–10), więc te ścieżki dzielą jeden licznik
+tempa. Po odbiciu limitem skrypt zwalnia (5 s, 15 s, 30 s, 60 s), a gdy endpoint
+odbija mimo wszystko — **pomija go i idzie dalej**, przechodząc na źródło
+awaryjne, zamiast wysadzać cały przebieg albo mielić w nieskończoność.
+Pobranie dwóch lat historii zajmuje około minuty.
 
 Podstawą historii są **rejestry podatkowe** (`tax/*-record`) — sięgają około dwóch
 lat, podczas gdy księgi rachunków oddają tylko ostatnie 90 dni. Księgi zostają

@@ -429,6 +429,67 @@ class TestLimitowZapytan(unittest.TestCase):
         )
 
 
+class TestOdpornoscNaLimity(unittest.TestCase):
+    """Uparte 429 nie może wysadzić przebiegu ani go zawiesić."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = make_config(Path(self.tmp.name))
+        self.cfg.requests_per_second = 0
+
+    def test_rodzina_tax_dzieli_jeden_limit(self):
+        client = BitgetClient(self.cfg)
+        self.assertEqual(client._bucket_for("/api/v2/tax/spot-record"), "tax")
+        self.assertEqual(client._bucket_for("/api/v2/tax/future-record"), "tax")
+        self.assertIs(
+            client._limiter_for("/api/v2/tax/spot-record"),
+            client._limiter_for("/api/v2/tax/future-record"),
+        )
+        self.assertIsNot(
+            client._limiter_for("/api/v2/tax/spot-record"),
+            client._limiter_for("/api/v2/spot/account/bills"),
+        )
+
+    def test_po_wyczerpaniu_prob_endpoint_jest_pomijany_bez_sieci(self):
+        from bitget_analyzer.client import RateLimitError
+
+        client = BitgetClient(self.cfg)
+        client._exhausted.add("tax")
+        with self.assertRaises(RateLimitError):
+            client.request("GET", "/api/v2/tax/spot-record", {})
+        # Nie wykonano żadnego żądania sieciowego.
+        self.assertEqual(client.request_count, 0)
+
+    def test_blad_limitu_nie_przerywa_analizy(self):
+        """Gdy rejestr odbije limitem, wchodzi źródło awaryjne."""
+        from bitget_analyzer.client import RateLimitError
+
+        class ThrottledClient(FakeClient):
+            def request(self, method, path, params=None, auth=True):
+                if path.startswith("/api/v2/tax/"):
+                    raise RateLimitError(path, 5)
+                return super().request(method, path, params, auth)
+
+        data, analysis, _ = build_dataset(self.cfg, ThrottledClient(self.cfg))
+        # Analiza dobiegła końca i twarda liczba jest policzona.
+        self.assertAlmostEqual(analysis.real_pnl, 499.0, places=6)
+        self.assertTrue(any("ogranicza zapytania" in w for w in data.warnings), data.warnings)
+
+    def test_przerwanie_po_serii_pustych_okresow(self):
+        """Zakres 'od 2000 roku' nie może kosztować setek zapytań."""
+        cfg = make_config(Path(self.tmp.name))
+        cfg.start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        cfg.requests_per_second = 0
+        client = FakeClient(cfg)
+        build_dataset(cfg, client)
+
+        wallet_calls = [
+            path for path, _ in client.calls if "wallet/deposit" in path or "wallet/withdraw" in path
+        ]
+        self.assertLess(len(wallet_calls), 70, f"za dużo zapytań o portfel: {len(wallet_calls)}")
+
+
 class TestDodatkowePrzeplywy(unittest.TestCase):
     """Ręczne uzupełnienie historii starszej niż limity API."""
 

@@ -26,6 +26,10 @@ TRANSFER_WINDOW_DAYS = 89
 
 SUCCESS_STATUSES = {"success", "successful", "finish", "finished", "completed"}
 
+# Po tylu pustych okresach z rzędu (~5 lat) przestajemy szukać wstecz.
+# Chroni przed przemiataniem dekad, gdy ktoś poda zakres "od 2000 roku".
+EMPTY_WINDOWS_LIMIT = 20
+
 
 def _ts(row: dict) -> int:
     for key in ("cTime", "createTime", "ts", "uTime", "updateTime"):
@@ -53,6 +57,7 @@ def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: D
             cfg.start_ms,
             cfg.end_ms,
             WALLET_WINDOW_DAYS,
+            stop_after_empty=EMPTY_WINDOWS_LIMIT,
             on_window_error=window_guard(data, coverage, "Wpłaty"),
         ),
         "orderId",
@@ -100,6 +105,7 @@ def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data
             cfg.start_ms,
             cfg.end_ms,
             WALLET_WINDOW_DAYS,
+            stop_after_empty=EMPTY_WINDOWS_LIMIT,
             on_window_error=window_guard(data, coverage, "Wypłaty"),
         ),
         "orderId",
