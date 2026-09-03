@@ -11,6 +11,7 @@ import logging
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from .cache import WindowCache, snap
 from .client import BitgetClient, dedupe
 from .config import Config
 from .futures import _classify as classify_futures
@@ -74,7 +75,13 @@ def classify_spot_tax(tax_type: str) -> str:
     return CAT_OTHER
 
 
-def fetch_spot_records(client: BitgetClient, cfg: Config, data: Dataset, start_ms: int) -> None:
+def fetch_spot_records(
+    client: BitgetClient,
+    cfg: Config,
+    data: Dataset,
+    start_ms: int,
+    cache: Optional[WindowCache] = None,
+) -> None:
     """Rejestr transakcji spot - każdy ruch monety z typem operacji."""
     coverage = data.coverage_for("rejestr spot (2 lata)")
     rows = dedupe(
@@ -82,9 +89,11 @@ def fetch_spot_records(client: BitgetClient, cfg: Config, data: Dataset, start_m
             SPOT_TAX_PATH,
             {},
             start_ms,
-            cfg.end_ms,
+            snap(cfg.end_ms),
             TAX_WINDOW_DAYS,
             limit=TAX_PAGE_LIMIT,
+            label="Rejestr spot",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Rejestr spot"),
         ),
         "id",
@@ -123,7 +132,13 @@ def fetch_spot_records(client: BitgetClient, cfg: Config, data: Dataset, start_m
     log.info("Rejestr spot: %d wpisów.", len(rows))
 
 
-def fetch_futures_records(client: BitgetClient, cfg: Config, data: Dataset, start_ms: int) -> None:
+def fetch_futures_records(
+    client: BitgetClient,
+    cfg: Config,
+    data: Dataset,
+    start_ms: int,
+    cache: Optional[WindowCache] = None,
+) -> None:
     """Rejestr transakcji futures - P&L pozycji, funding i prowizje."""
     coverage = data.coverage_for("rejestr futures (2 lata)")
     rows = dedupe(
@@ -131,9 +146,11 @@ def fetch_futures_records(client: BitgetClient, cfg: Config, data: Dataset, star
             FUTURES_TAX_PATH,
             {},
             start_ms,
-            cfg.end_ms,
+            snap(cfg.end_ms),
             TAX_WINDOW_DAYS,
             limit=TAX_PAGE_LIMIT,
+            label="Rejestr futures",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Rejestr futures"),
         ),
         "id",

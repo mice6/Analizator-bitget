@@ -62,6 +62,7 @@ def fetch_futures_bills(client: BitgetClient, cfg: Config, data: Dataset) -> Non
                 start_ms,
                 cfg.end_ms,
                 BILL_WINDOW_DAYS,
+                label=f"Księga futures {product_type}",
                 on_window_error=window_guard(data, coverage, f"Księga futures {product_type}"),
             ),
             "billId",
@@ -110,6 +111,7 @@ def fetch_closed_positions(client: BitgetClient, cfg: Config, data: Dataset) -> 
                 start_ms,
                 cfg.end_ms,
                 POSITION_WINDOW_DAYS,
+                label=f"Historia pozycji {product_type}",
                 on_window_error=window_guard(
                     data, coverage, f"Historia pozycji {product_type}"
                 ),

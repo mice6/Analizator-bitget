@@ -228,3 +228,4 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 | `Port 8770 jest już zajęty` | Panel działa w innym oknie: `pkill -f "python3 panel.py"`, albo wystartuj na innym porcie i popraw tunel |
 | `git pull` mówi „Already up to date", a poprawek nie ma | `git fetch origin && git reset --hard origin/claude/bitget-profitability-analyzer-xftfmy` |
 | W pokryciu danych „limit historii API" | Normalne — Bitget nie oddaje danych sprzed ~2 lat. Brakujące wpłaty dopisz ręcznie (README, punkt 8) |
+| „odbija limitem mimo 4 prób" na `tax/*` | Wyczerpana pula zapytań do rejestrów. Odczekaj kilkanaście minut; już pobrane okresy są w pamięci podręcznej i nie zostaną pobrane ponownie |

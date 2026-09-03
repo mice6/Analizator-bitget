@@ -195,6 +195,16 @@ odbija mimo wszystko — **pomija go i idzie dalej**, przechodząc na źródło
 awaryjne, zamiast wysadzać cały przebieg albo mielić w nieskończoność.
 Pobranie dwóch lat historii zajmuje około minuty.
 
+Pobrane okresy trafiają do **pamięci podręcznej** (`raport/cache_okresow.json`),
+więc powtórne uruchomienie analizy nie pyta o nie ponownie. To istotne, bo pula
+zapytań do rejestrów podatkowych jest wąska i kilka przebiegów pod rząd potrafi
+ją wyczerpać — wtedy trzeba odczekać kilkanaście minut. Skasowanie tego pliku
+wymusza pełne pobranie od nowa.
+
+W logu widać, który okres jest właśnie pobierany (`Rejestr spot: pobieram
+okres 7/25 (2026-02-05 → 2026-03-07)...`), więc od razu wiadomo, czy analiza
+posuwa się do przodu, czy stoi.
+
 Podstawą historii są **rejestry podatkowe** (`tax/*-record`) — sięgają około dwóch
 lat, podczas gdy księgi rachunków oddają tylko ostatnie 90 dni. Księgi zostają
 jako źródło awaryjne, używane dopiero gdy rejestr nic nie zwróci.

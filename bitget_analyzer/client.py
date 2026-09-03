@@ -34,6 +34,10 @@ log = logging.getLogger("bitget")
 
 SUCCESS_CODE = "00000"
 
+
+def _stamp(timestamp_ms: int) -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime(timestamp_ms / 1000))
+
 # Kody błędów, przy których ponawiamy żądanie (limit zapytań / chwilowy problem).
 RETRYABLE_CODES = {
     "429",
@@ -170,6 +174,10 @@ def time_windows(start_ms: int, end_ms: int, window_days: int) -> Iterator[Tuple
         chunk_start = max(cursor - span, start_ms)
         windows.append((chunk_start, cursor))
         cursor = chunk_start - 1
+    # Na krawędzi zakresu zostaje czasem szczątkowe okno liczone w milisekundach.
+    # Zapytanie o nie tylko marnuje limit, więc je pomijamy.
+    if len(windows) > 1 and windows[-1][1] - windows[-1][0] < 3_600_000:
+        windows.pop()
     return iter(reversed(windows))
 
 
@@ -338,7 +346,9 @@ class BitgetClient:
         if hits > len(RATE_LIMIT_BACKOFF):
             self._exhausted.add(bucket)
             log.warning(
-                "%s odbija limitem mimo %d prób - pomijam ten endpoint i lecę dalej.",
+                "%s odbija limitem mimo %d prób - pomijam ten endpoint i lecę dalej. "
+                "Jeśli powtarzasz analizę co chwilę, odczekaj kilkanaście minut: "
+                "rejestry podatkowe mają własną pulę zapytań.",
                 path,
                 hits,
             )
@@ -446,6 +456,8 @@ class BitgetClient:
         newest_first: bool = True,
         on_window_error: Optional[Callable[["BitgetError", int, int], None]] = None,
         stop_after_empty: int = 0,
+        label: Optional[str] = None,
+        cache: Any = None,
         **kwargs: Any,
     ) -> Iterator[dict]:
         """Paginacja z podziałem zakresu czasu na okna wymagane przez API.
@@ -459,10 +471,33 @@ class BitgetClient:
         if newest_first:
             windows.reverse()
 
+        name = label or path
+        total = len(windows)
         empty_streak = 0
         for index, (window_start, window_end) in enumerate(windows):
+            period = f"{_stamp(window_start)} → {_stamp(window_end)}"
+            cache_key = None
+            if cache is not None:
+                cache_key = cache.key(path, window_start, window_end)
+                cached = cache.get(cache_key)
+                if cached is not None:
+                    log.info(
+                        "%s: okres %d/%d (%s) - %d rekordów z pamięci podręcznej",
+                        name, index + 1, total, period, len(cached),
+                    )
+                    yield from cached
+                    continue
+
+            log.info("%s: pobieram okres %d/%d (%s)...", name, index + 1, total, period)
             try:
                 rows = self._window_rows(path, params, window_start, window_end, kwargs)
+                if rows:
+                    log.info(
+                        "%s: okres %d/%d (%s) - %d rekordów",
+                        name, index + 1, total, period, len(rows),
+                    )
+                if cache_key is not None:
+                    cache.put(cache_key, rows)
                 yield from rows
                 if stop_after_empty:
                     empty_streak = 0 if rows else empty_streak + 1

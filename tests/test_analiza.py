@@ -490,6 +490,92 @@ class TestOdpornoscNaLimity(unittest.TestCase):
         self.assertLess(len(wallet_calls), 70, f"za dużo zapytań o portfel: {len(wallet_calls)}")
 
 
+class TestPamieciPodrecznej(unittest.TestCase):
+    """Rejestry podatkowe mają wąską pulę zapytań - drugi przebieg nie może jej palić."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = make_config(Path(self.tmp.name))
+        self.cfg.requests_per_second = 0
+
+    def _run(self):
+        from bitget_analyzer.cache import WindowCache
+        from bitget_analyzer.pipeline import collect
+
+        client = FakeClient(self.cfg)
+        cache = WindowCache(self.cfg.out_dir / "cache_okresow.json")
+        prices = PriceBook(client)
+        data = collect(self.cfg, client, prices, None, cache)
+        cache.save()
+        tax_calls = [p for p, _ in client.calls if p.startswith("/api/v2/tax/")]
+        return data, cache, tax_calls
+
+    def test_drugi_przebieg_nie_pyta_o_te_same_okresy(self):
+        _, _, first_calls = self._run()
+        self.assertTrue(first_calls, "pierwszy przebieg musi coś pobrać")
+
+        data, cache, second_calls = self._run()
+        self.assertEqual(second_calls, [], "drugi przebieg pytał ponownie o rejestry")
+        self.assertTrue(cache.hits)
+        # Dane muszą być takie same jak przy pobieraniu z sieci.
+        self.assertTrue(data.spot_ledger)
+        self.assertTrue(data.futures_ledger)
+
+    def test_zapis_i_odczyt_z_dysku(self):
+        from bitget_analyzer.cache import WindowCache
+
+        path = Path(self.tmp.name) / "c.json"
+        cache = WindowCache(path)
+        key = cache.key("/api/v2/tax/spot-record", 100, 200)
+        self.assertIsNone(cache.get(key))
+        cache.put(key, [{"id": "1"}])
+        cache.save()
+
+        reopened = WindowCache(path)
+        self.assertEqual(reopened.get(key), [{"id": "1"}])
+        self.assertEqual(reopened.hits, 1)
+
+    def test_granice_okresow_stabilne_miedzy_przebiegami(self):
+        from bitget_analyzer.cache import snap
+
+        # Dwa uruchomienia w odstępie minut muszą dać ten sam klucz.
+        base = 1_800_000_000_000
+        self.assertEqual(snap(base), snap(base + 5 * 60 * 1000))
+        self.assertNotEqual(snap(base), snap(base + 2 * 60 * 60 * 1000))
+
+
+class TestPostepuWLogu(unittest.TestCase):
+    def test_log_zawiera_zakresy_dat(self):
+        import logging
+
+        records = []
+
+        class Collector(logging.Handler):
+            def emit(self, record):
+                records.append(record.getMessage())
+
+        logger = logging.getLogger("bitget")
+        handler = Collector(level=logging.INFO)
+        logger.addHandler(handler)
+        previous = logger.level
+        logger.setLevel(logging.INFO)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = make_config(Path(tmp))
+                cfg.requests_per_second = 0
+                build_dataset(cfg, FakeClient(cfg))
+        finally:
+            logger.removeHandler(handler)
+            logger.setLevel(previous)
+
+        postep = [line for line in records if "pobieram okres" in line]
+        self.assertTrue(postep, "brak informacji o postępie")
+        # Każda linia mówi który okres z ilu i jakich dat dotyczy.
+        self.assertTrue(any("Rejestr spot: pobieram okres 1/" in line for line in postep))
+        self.assertTrue(any("→" in line for line in postep))
+
+
 class TestDodatkowePrzeplywy(unittest.TestCase):
     """Ręczne uzupełnienie historii starszej niż limity API."""
 

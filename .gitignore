@@ -16,6 +16,7 @@ raport/
 *.csv
 !przyklad_dodatkowe_przeplywy.csv
 price_cache.json
+cache_okresow.json
 
 # Python
 __pycache__/

@@ -6,6 +6,7 @@ import logging
 from typing import Callable, Optional, Tuple
 
 from .analysis import Analysis, Analyzer
+from .cache import WindowCache
 from .client import BitgetClient
 from .config import Config
 from .earn import fetch_savings_history
@@ -51,6 +52,7 @@ def collect(
     client: BitgetClient,
     prices: PriceBook,
     progress: ProgressFn = None,
+    cache: Optional[WindowCache] = None,
 ) -> Dataset:
     """Pobiera z API wszystko, czego potrzebuje analiza."""
     report = progress or _noop
@@ -73,13 +75,13 @@ def collect(
     # Rejestry podatkowe sięgają ~2 lat wstecz - to podstawowe źródło historii.
     # Księgi rachunków (90 dni) uruchamiamy tylko wtedy, gdy rejestr zawiódł.
     if step("spot", 3):
-        fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS))
+        fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
         if not data.spot_ledger:
             log.info("Rejestr spot pusty - sięgam po księgę rachunku (90 dni).")
             fetch_spot_bills(client, cfg, data)
 
     if step("futures", 4):
-        fetch_futures_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS))
+        fetch_futures_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
         if not data.futures_ledger:
             log.info("Rejestr futures pusty - sięgam po księgę rachunku.")
             fetch_futures_bills(client, cfg, data)
@@ -115,10 +117,16 @@ def run(
     client = BitgetClient(cfg)
     client.sync_time()
     prices = PriceBook(client, cache_path=cfg.out_dir / "price_cache.json")
+    cache = WindowCache(cfg.out_dir / "cache_okresow.json")
     try:
-        data = collect(cfg, client, prices, progress)
+        data = collect(cfg, client, prices, progress, cache)
     finally:
         prices.save_cache()
+        cache.save()
+        if cache.hits:
+            log.info(
+                "Z pamięci podręcznej: %d okresów (oszczędzone zapytania).", cache.hits
+            )
 
     (progress or _noop)("analysis", "Przeliczanie wyniku", len(STEPS), len(STEPS))
     analysis = Analyzer(data, prices).build()
