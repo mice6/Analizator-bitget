@@ -49,6 +49,8 @@ DAILY_PRICES = {
     ("BTCUSDT", day_of(180)): 45000.0,
     ("BTCUSDT", day_of(60)): 40000.0,
     ("BTCUSDT", day_of(30)): 50000.0,
+    ("BTCUSDT", day_of(41)): 40000.0,
+    ("BTCUSDT", day_of(40)): 44000.0,
     ("ETHUSDT", day_of(100)): 2000.0,
     ("ETHUSDT", day_of(90)): 2500.0,
 }
@@ -435,23 +437,27 @@ class TestFuturesZPozycji(unittest.TestCase):
 
 
 class TestWynikuBotowZKsiegi(unittest.TestCase):
-    """Zlecenia botów nie trafiają do /spot/trade/fills - liczymy je z księgi."""
+    """Zlecenia botów nie trafiają do /spot/trade/fills - liczymy je z księgi.
 
-    def _dataset(self, with_fill: bool):
+    Kluczowe: wynik musi wynikać z RÓŻNICY KURSÓW między kupnem a sprzedażą.
+    Sumowanie obu nóg transakcji zawsze dałoby zero, bo wymiana odbywa się
+    po kursie rynkowym.
+    """
+
+    def _dataset(self, buy_days_ago: int, sell_days_ago: int, with_fill: bool = False):
         from bitget_analyzer.model import CAT_TRADE, Fill, LedgerEntry
 
         data = Dataset()
-        # Zamknięty cykl bota: kupno 100 USDT -> BTC, sprzedaż BTC -> 110 USDT.
         legs = [
-            ("USDT", -100.0, -0.1),
-            ("BTC", 0.0025, 0.0),
-            ("BTC", -0.0025, 0.0),
-            ("USDT", 110.0, -0.11),
+            (buy_days_ago, "USDT", -100.0, -0.1),
+            (buy_days_ago, "BTC", 0.0025, 0.0),
+            (sell_days_ago, "BTC", -0.0025, 0.0),
+            (sell_days_ago, "USDT", 110.0, -0.11),
         ]
-        for index, (coin, amount, fee) in enumerate(legs):
+        for index, (dni, coin, amount, fee) in enumerate(legs):
             data.spot_ledger.append(
                 LedgerEntry(
-                    ts=days_ago(40) + index, account="spot", coin=coin,
+                    ts=days_ago(dni) + index, account="spot", coin=coin,
                     amount=amount, fee=fee, category=CAT_TRADE,
                     business_type="BUY" if amount > 0 else "SELL",
                     entry_id=str(index),
@@ -459,35 +465,55 @@ class TestWynikuBotowZKsiegi(unittest.TestCase):
             )
         if with_fill:
             data.fills.append(
-                Fill(ts=days_ago(40), symbol="BTCUSDT", base="BTC", quote="USDT",
-                     side="buy", price=40000, size=0.0025, quote_amount=100,
-                     fee=-0.1, fee_coin="USDT", trade_id="realny")
+                Fill(ts=days_ago(sell_days_ago), symbol="BTCUSDT", base="BTC",
+                     quote="USDT", side="buy", price=40000, size=0.0025,
+                     quote_amount=100, fee=-0.1, fee_coin="USDT", trade_id="realny")
             )
         return data
 
-    def test_wynik_z_ksiegi_gdy_brak_transakcji(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = make_config(Path(tmp))
-            prices = PriceBook(FakeClient(cfg))
-            data = self._dataset(with_fill=False)
-            analysis = Analyzer(data, prices).build()
-
-        # 110 - 100 - 0.21 prowizji = 9.79
-        self.assertAlmostEqual(analysis.spot_realized_total, 9.79, places=6)
-        self.assertTrue(any("z księgi rachunku" in w for w in data.warnings))
-
-    def test_brak_podwojnego_liczenia_gdy_transakcje_sa(self):
-        """Miesiąc pokryty dokładnymi transakcjami nie może być liczony dwa razy."""
+    def _run(self, data):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = make_config(Path(tmp))
             prices = PriceBook(FakeClient(cfg))
             prices.load_symbols()
-            data = self._dataset(with_fill=True)
-            analysis = Analyzer(data, prices).build()
+            return Analyzer(data, prices).build()
 
-        # Wynik pochodzi z silnika transakcji, nie z sumy księgi.
+    def test_wynik_odzwierciedla_ruch_kursu(self):
+        # Kupno po 40 000, sprzedaż po 44 000: 0,0025 * 4 000 = 10, minus 0,21 prowizji.
+        data = self._dataset(buy_days_ago=41, sell_days_ago=40)
+        analysis = self._run(data)
+        self.assertAlmostEqual(analysis.spot_realized_total, 9.79, places=6)
+        self.assertTrue(any("z księgi rachunku" in w for w in data.warnings))
+
+    def test_bez_ruchu_kursu_zostaja_same_prowizje(self):
+        # Kupno i sprzedaż tego samego dnia po tym samym kursie: zysku nie ma.
+        data = self._dataset(buy_days_ago=40, sell_days_ago=40)
+        analysis = self._run(data)
+        self.assertAlmostEqual(analysis.spot_realized_total, -0.21, places=6)
+
+    def test_brak_podwojnego_liczenia_gdy_transakcje_sa(self):
+        """Miesiąc pokryty dokładnymi transakcjami nie może być liczony dwa razy."""
+        data = self._dataset(buy_days_ago=41, sell_days_ago=40, with_fill=True)
+        analysis = self._run(data)
         self.assertNotAlmostEqual(analysis.spot_realized_total, 9.79, places=6)
         self.assertFalse(any("z księgi rachunku" in w for w in data.warnings))
+
+    def test_sprzedaz_bez_zakupu_nie_tworzy_zysku(self):
+        from bitget_analyzer.model import CAT_TRADE, LedgerEntry
+
+        data = Dataset()
+        data.spot_ledger.append(
+            LedgerEntry(ts=days_ago(40), account="spot", coin="BTC", amount=-0.0025,
+                        fee=0.0, category=CAT_TRADE, entry_id="1")
+        )
+        data.spot_ledger.append(
+            LedgerEntry(ts=days_ago(40), account="spot", coin="USDT", amount=110.0,
+                        fee=-0.11, category=CAT_TRADE, entry_id="2")
+        )
+        analysis = self._run(data)
+        # Bez znanej ceny nabycia zostaje sama prowizja, nie fikcyjne 110 USDT.
+        self.assertAlmostEqual(analysis.spot_realized_total, -0.11, places=6)
+        self.assertTrue(any("kupionych przed początkiem" in w for w in data.warnings))
 
 
 class TestSprzedazBezHistorii(unittest.TestCase):

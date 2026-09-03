@@ -280,10 +280,13 @@ widać, że pojedyncze złe miesiące zjadły dorobek kilku dobrych.
 Zlecenia botów często **nie pojawiają się** w endpoincie transakcji
 (`/spot/trade/fills`) — na koncie z botami potrafi on zwrócić kilka rekordów przy
 tysiącach operacji w księdze. Dla miesięcy, których nie pokrywają dokładne
-transakcje, wynik spot liczony jest wtedy z księgi rachunku: obie nogi każdej
-operacji wyceniane są kursem z chwili jej wykonania, więc zwykła zamiana daje
-zero, a zamknięty cykl bota — faktyczny zysk lub stratę. Miesiąc pokryty
-dokładnymi transakcjami nigdy nie jest liczony dwa razy.
+transakcje, wynik spot liczony jest wtedy z księgi rachunku metodą **średniej
+ceny nabycia po stronie monety**: wpływ monety podnosi podstawę kosztową po
+kursie z chwili operacji, a wypływ realizuje różnicę między kursem sprzedaży
+a średnim kosztem. Nogi w walucie kwotowanej (USDT itd.) są drugą stroną tej
+samej wymiany i celowo nie są sumowane — sumowanie obu nóg zawsze dałoby zero,
+bo wymiana odbywa się po kursie rynkowym. Miesiąc pokryty dokładnymi
+transakcjami nigdy nie jest liczony dwa razy.
 
 Zmiany wyceny monet, które nadal trzymasz, nie wchodzą do tej pozycji —
 lądują w „różnicy do wyniku rzeczywistego".

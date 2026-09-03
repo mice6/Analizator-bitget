@@ -220,6 +220,76 @@ class Analyzer:
         self._uncovered = sorted(uncovered)
         return dict(positions)
 
+    def _spot_from_ledger(self, skip_months: set) -> Dict[str, float]:
+        """Zrealizowany wynik spot z księgi rachunku, metodą średniej ceny nabycia.
+
+        Nie da się tu sparować nóg zlecenia, więc idziemy po ruchach monet:
+        wpływ monety podnosi podstawę kosztową po kursie z chwili operacji,
+        wypływ realizuje różnicę między kursem sprzedaży a średnim kosztem.
+        Nogi w walucie kwotowanej (USDT itd.) są drugą stroną tej samej wymiany
+        i celowo ich nie sumujemy - inaczej wynik zawsze wychodziłby zerowy.
+        """
+        entries = [
+            entry
+            for entry in self.data.spot_ledger
+            if entry.category == CAT_TRADE and entry.month not in skip_months
+        ]
+        if not entries:
+            return {}
+
+        positions: Dict[str, Position] = defaultdict(Position)
+        realized: Dict[str, float] = defaultdict(float)
+        uncovered: set = set()
+        priced = 0
+
+        for entry in sorted(entries, key=lambda item: item.ts):
+            month = entry.month
+            if entry.fee:
+                realized[month] += self.to_usd(entry.coin, entry.fee, entry.ts)
+
+            if entry.coin in STABLECOINS or not entry.amount:
+                continue
+            price, _ = self.prices.at(entry.coin, entry.ts)
+            if price <= 0:
+                continue
+            priced += 1
+            position = positions[entry.coin]
+
+            if entry.amount > 0:
+                position.qty += entry.amount
+                position.cost += entry.amount * price
+                continue
+
+            size = -entry.amount
+            covered = min(size, max(position.qty, 0.0))
+            if covered > 0:
+                realized[month] += covered * (price - position.avg_cost)
+                position.cost = max(position.cost - covered * position.avg_cost, 0.0)
+                position.qty -= covered
+            if size - covered > 1e-12:
+                uncovered.add(entry.coin)
+
+        if not priced:
+            self.data.warn(
+                "Nie udało się wycenić operacji spot z księgi rachunku (brak "
+                "kursów historycznych) - wynik botów nie wszedł do rozbicia."
+            )
+            return {}
+
+        self.data.warn(
+            f"Wynik spot za {len(realized)} miesięcy policzony z księgi rachunku "
+            f"({len(entries)} operacji), bo endpoint transakcji nie zwraca zleceń "
+            "botów. To wynik zrealizowany na sprzedanych monetach; wzrost wyceny "
+            "tego, co nadal trzymasz, zostaje w 'różnicy do wyniku rzeczywistego'."
+        )
+        if uncovered:
+            self.data.warn(
+                "Sprzedaże monet kupionych przed początkiem zakresu: "
+                + ", ".join(sorted(uncovered)[:8])
+                + ". Ich wynik jest niepełny - rozszerz zakres analizy."
+            )
+        return dict(realized)
+
     def _futures_from_positions(self, row_for) -> None:
         """Wynik futures odtworzony z historii zamkniętych pozycji.
 
@@ -344,31 +414,8 @@ class Analyzer:
         fill_months = {
             month_key(fill.ts) for fill in self.data.fills if fill.size > 0
         }
-        ledger_spot: Dict[str, float] = defaultdict(float)
-        ledger_spot_entries = 0
-        for entry in self.data.spot_ledger:
-            if entry.category != CAT_TRADE:
-                continue
-            ledger_spot_entries += 1
-            if entry.month in fill_months:
-                continue
-            # Obie nogi transakcji wyceniamy kursem z chwili operacji: przy
-            # zwykłej zamianie dają zero, a przy zamkniętym cyklu bota - zysk.
-            ledger_spot[entry.month] += self.to_usd(
-                entry.coin, entry.amount, entry.ts
-            ) + self.to_usd(entry.coin, entry.fee, entry.ts)
-
-        for month, value in ledger_spot.items():
+        for month, value in self._spot_from_ledger(fill_months).items():
             row_for(month).spot_realized += value
-
-        if ledger_spot and ledger_spot_entries:
-            self.data.warn(
-                f"Wynik spot za {len(ledger_spot)} miesięcy policzony z księgi "
-                f"rachunku ({ledger_spot_entries} operacji), bo endpoint transakcji "
-                "nie zwraca zleceń botów. To wynik zrealizowany na zamkniętych "
-                "cyklach; zmiany wyceny monet, które nadal trzymasz, siedzą "
-                "w pozycji 'różnica do wyniku rzeczywistego'."
-            )
 
         # 4b. Spot - pozycje spoza handlu (odsetki, nagrody, korekty).
         for entry in self.data.spot_ledger:
