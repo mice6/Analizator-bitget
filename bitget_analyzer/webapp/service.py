@@ -18,6 +18,14 @@ from ..secrets_store import CredentialStore, Credentials, SecretsError
 
 log = logging.getLogger("bitget.panel")
 
+
+def _skip_from(params: dict) -> str:
+    """Tryb szybki pomija rejestry podatkowe (2 lata, limit 1 zapytanie/s)."""
+    skip = params.get("skip") or ""
+    if params.get("historia") == "szybka":
+        skip = f"{skip},rejestry" if skip else "rejestry"
+    return skip
+
 MAX_LOG_LINES = 400
 
 
@@ -147,7 +155,7 @@ class PanelService:
             out=params.get("katalog") or self.default_out,
             fx_rate=params.get("fx_rate") or None,
             fx_label=params.get("fx_label") or None,
-            skip=params.get("skip") or "",
+            skip=_skip_from(params),
             extra_flows=params.get("dodatkowe_przeplywy") or None,
             transfer_coins=params.get("monety_transferow") or None,
         )

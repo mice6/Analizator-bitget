@@ -317,13 +317,13 @@ class TestRejestrPodatkowy(unittest.TestCase):
 
         data = Dataset()
         # Zlecenie z trzema nogami - nie da się jednoznacznie odczytać pary.
-        for index, (coin, amount) in enumerate([("USDT", -100), ("BTC", 0.001), ("BGB", 0.5)]):
-            data.spot_ledger.append(
-                LedgerEntry(
-                    ts=days_ago(150), account="spot", coin=coin, amount=amount,
-                    category=CAT_TRADE, symbol="DZIWNE", entry_id=str(index),
-                )
+        data.spot_orders["DZIWNE"] = [
+            LedgerEntry(
+                ts=days_ago(150), account="spot", coin=coin, amount=amount,
+                category=CAT_TRADE, symbol="DZIWNE", entry_id=str(index),
             )
+            for index, (coin, amount) in enumerate([("USDT", -100), ("BTC", 0.001), ("BGB", 0.5)])
+        ]
         added = synthesize_fills(data, PriceBook(FakeClient(make_config(Path("."))))) 
         self.assertEqual(added, 0)
         self.assertTrue(any("Nie udało się odtworzyć" in w for w in data.warnings))
@@ -522,6 +522,14 @@ class TestPamieciPodrecznej(unittest.TestCase):
         self.assertTrue(data.spot_ledger)
         self.assertTrue(data.futures_ledger)
 
+    def test_pusta_pamiec_nie_jest_falsy(self):
+        """Pusty magazyn musi być prawdziwy w warunku - inaczej byłby pomijany."""
+        from bitget_analyzer.cache import WindowCache
+
+        cache = WindowCache(Path(self.tmp.name) / "pusty.json")
+        self.assertEqual(len(cache), 0)
+        self.assertTrue(cache, "pusta pamięć podręczna nie może być falsy")
+
     def test_zapis_i_odczyt_z_dysku(self):
         from bitget_analyzer.cache import WindowCache
 
@@ -543,6 +551,58 @@ class TestPamieciPodrecznej(unittest.TestCase):
         base = 1_800_000_000_000
         self.assertEqual(snap(base), snap(base + 5 * 60 * 1000))
         self.assertNotEqual(snap(base), snap(base + 2 * 60 * 60 * 1000))
+
+
+class TestDuzejLiczbyRekordow(unittest.TestCase):
+    """Konta z grid botami: rekordy muszą być zwijane, nie trzymane w pamięci."""
+
+    def test_rejestr_jest_agregowany_do_sum_miesiecznych(self):
+        from bitget_analyzer.tax import LedgerAggregator
+
+        aggregator = LedgerAggregator("spot")
+        # 50 000 drobnych transakcji w jednym miesiącu.
+        for index in range(50_000):
+            aggregator.add(days_ago(40) + index, "USDT", "trade", 1.5, -0.01)
+
+        entries = list(aggregator.entries())
+        self.assertEqual(len(entries), 1, "wszystko z jednego miesiąca to jedna suma")
+        self.assertEqual(aggregator.records, 50_000)
+        self.assertAlmostEqual(entries[0].amount, 75_000.0, places=4)
+        self.assertAlmostEqual(entries[0].fee, -500.0, places=4)
+        self.assertIn("50000 operacji", entries[0].business_type)
+
+    def test_sumy_z_pamieci_podrecznej_sa_identyczne(self):
+        from bitget_analyzer.tax import LedgerAggregator
+
+        source = LedgerAggregator("futures")
+        for index in range(1000):
+            source.add(days_ago(35) + index, "USDT", "trade", 0.25, -0.001)
+        summary = source.to_summary()
+
+        restored = LedgerAggregator("futures")
+        restored.merge_summary(summary)
+
+        self.assertEqual(restored.records, source.records)
+        original = list(source.entries())[0]
+        recovered = list(restored.entries())[0]
+        self.assertAlmostEqual(recovered.amount, original.amount, places=6)
+        self.assertAlmostEqual(recovered.fee, original.fee, places=6)
+        self.assertEqual(recovered.ts, original.ts)
+
+    def test_podsumowanie_okresu_da_sie_zapisac_w_json(self):
+        import json
+
+        from bitget_analyzer.tax import LedgerAggregator
+
+        aggregator = LedgerAggregator("spot")
+        aggregator.add(days_ago(40), "BTC", "trade", 0.5, -0.0001)
+        aggregator.unknown_types["Nowy typ"] += 2
+        # Pamięć podręczna trzyma to jako JSON - musi przejść tam i z powrotem.
+        restored = json.loads(json.dumps(aggregator.to_summary()))
+        again = LedgerAggregator("spot")
+        again.merge_summary(restored)
+        self.assertEqual(again.records, 1)
+        self.assertEqual(again.unknown_types["Nowy typ"], 2)
 
 
 class TestPostepuWLogu(unittest.TestCase):

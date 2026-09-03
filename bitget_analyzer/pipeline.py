@@ -75,15 +75,19 @@ def collect(
     # Rejestry podatkowe sięgają ~2 lat wstecz - to podstawowe źródło historii.
     # Księgi rachunków (90 dni) uruchamiamy tylko wtedy, gdy rejestr zawiódł.
     if step("spot", 3):
-        fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
+        if cfg.enabled("rejestry"):
+            fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
         if not data.spot_ledger:
-            log.info("Rejestr spot pusty - sięgam po księgę rachunku (90 dni).")
+            log.info("Sięgam po księgę rachunku spot (90 dni, szybszy endpoint).")
             fetch_spot_bills(client, cfg, data)
 
     if step("futures", 4):
-        fetch_futures_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
+        if cfg.enabled("rejestry"):
+            fetch_futures_records(
+                client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache
+            )
         if not data.futures_ledger:
-            log.info("Rejestr futures pusty - sięgam po księgę rachunku.")
+            log.info("Sięgam po księgę rachunku futures.")
             fetch_futures_bills(client, cfg, data)
 
     if step("fills", 5):

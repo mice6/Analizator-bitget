@@ -145,12 +145,23 @@
     <p class="hint">
       Bitget oddaje historię tylko przez ograniczony czas wstecz &ndash; po analizie sprawdź sekcję
       &bdquo;Pokrycie danych&rdquo;, żeby zobaczyć, od kiedy dane faktycznie są.
+      <br><strong>Pełna</strong> sięga 2 lat, ale rejestry podatkowe mają limit 1 zapytania na sekundę &ndash;
+      przy koncie z grid botami (setki tysięcy wpisów miesięcznie) potrafi to trwać godzinę i więcej.
+      Postęp jest zapisywany po każdym okresie, więc przerwaną analizę można wznowić bez straty.
+      <strong>Szybka</strong> bierze 90 dni z szybszego endpointu &ndash; kilka minut.
     </p>
     <div class="grid">
       <div><label for="dateFrom">Od</label><input id="dateFrom" type="date"></div>
       <div><label for="dateTo">Do</label><input id="dateTo" type="date"></div>
       <div><label for="fxRate">Kurs 1 USDT (opcjonalnie)</label><input id="fxRate" type="number" step="0.0001" placeholder="np. 4.05"></div>
       <div><label for="fxLabel">Waluta wyświetlania</label><input id="fxLabel" type="text" placeholder="PLN"></div>
+      <div>
+        <label for="historia">Głębokość historii</label>
+        <select id="historia">
+          <option value="pelna">Pełna &ndash; 2 lata (wolno przy grid botach)</option>
+          <option value="szybka">Szybka &ndash; 90 dni</option>
+        </select>
+      </div>
       <div><label for="outDir">Katalog na CSV</label><input id="outDir" type="text" value="raport"></div>
       <div><label for="extraFlows">Plik z dodatkowymi przepływami</label><input id="extraFlows" type="text" placeholder="stare_wplaty.csv"></div>
     </div>
@@ -324,6 +335,7 @@ async function startAnalysis() {
     fx_rate: $("fxRate").value,
     fx_label: $("fxLabel").value,
     katalog: $("outDir").value,
+    historia: $("historia").value,
     dodatkowe_przeplywy: $("extraFlows").value,
   };
   try {

@@ -352,3 +352,39 @@ class TestZajetyPort(unittest.TestCase):
             self.addCleanup(server.server_close)
             self.assertGreater(server.server_address[1], 0)
             self.assertIn(str(server.server_address[1]), url)
+
+
+class TestTrybuHistorii(unittest.TestCase):
+    """Wybór 'szybka' ma pomijać rejestry podatkowe (limit 1 zapytanie/s)."""
+
+    def test_mapowanie_parametru(self):
+        from bitget_analyzer.webapp.service import _skip_from
+
+        self.assertEqual(_skip_from({}), "")
+        self.assertEqual(_skip_from({"historia": "pelna"}), "")
+        self.assertEqual(_skip_from({"historia": "szybka"}), "rejestry")
+        self.assertEqual(_skip_from({"historia": "szybka", "skip": "earn"}), "earn,rejestry")
+
+    def test_tryb_szybki_nie_dotyka_rejestrow(self):
+        import sys
+        from pathlib import Path as P
+
+        sys.path.insert(0, str(P(__file__).resolve().parent))
+        from test_analiza import FakeClient, make_config
+
+        from bitget_analyzer.pipeline import collect
+        from bitget_analyzer.prices import PriceBook
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            cfg.requests_per_second = 0
+            cfg.skip = ["rejestry"]
+            client = FakeClient(cfg)
+            data = collect(cfg, client, PriceBook(client))
+
+        tax_calls = [p for p, _ in client.calls if p.startswith("/api/v2/tax/")]
+        self.assertEqual(tax_calls, [], "tryb szybki nie może pytać o rejestry")
+        # Zamiast tego wchodzi księga rachunku.
+        bills = [p for p, _ in client.calls if "account/bills" in p]
+        self.assertTrue(bills, "powinien sięgnąć po księgę spot")
+        self.assertTrue(data.spot_ledger)

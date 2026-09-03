@@ -31,6 +31,10 @@ FILLS_PATH = "/api/v2/spot/trade/fills"
 
 SPOT_WINDOW_DAYS = 89
 
+# Ile pojedynczych transakcji trzymamy w pamięci. Konta z grid botami mają ich
+# setki tysięcy; powyżej tego progu liczymy wynik z próbki i mówimy o tym wprost.
+MAX_FILLS = 300_000
+
 # groupType ze Spota -> kategoria w naszej księdze.
 GROUP_CATEGORY = {
     "deposit": CAT_DEPOSIT,
@@ -128,6 +132,14 @@ def fetch_spot_fills(
         ),
         "tradeId",
     )
+
+    if len(rows) > MAX_FILLS:
+        data.warn(
+            f"Pobrano {len(rows)} transakcji spot - to więcej niż analizuję "
+            f"szczegółowo ({MAX_FILLS}). Wynik w rozbiciu na pary liczę "
+            "z najnowszych transakcji; sumy miesięczne obejmują wszystko."
+        )
+        rows = sorted(rows, key=lambda r: to_float(r.get("cTime")), reverse=True)[:MAX_FILLS]
 
     for row in rows:
         ts = int(to_float(row.get("cTime")))

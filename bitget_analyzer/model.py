@@ -202,6 +202,8 @@ class Dataset:
     fills: List[Fill] = field(default_factory=list)
     closed_positions: List[dict] = field(default_factory=list)
     equity: Optional[EquitySnapshot] = None
+    # Zlecenia spot pogrupowane po bizOrderId - do odtwarzania transakcji.
+    spot_orders: Dict[str, List[LedgerEntry]] = field(default_factory=dict)
     coverage: Dict[str, SourceCoverage] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 

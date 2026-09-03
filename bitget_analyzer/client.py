@@ -529,6 +529,30 @@ class BitgetClient:
                 yield from shrunk
                 return
 
+    def fetch_window(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]],
+        window_start: int,
+        window_end: int,
+        allow_shrink: bool = False,
+        **kwargs: Any,
+    ) -> List[dict]:
+        """Pobiera jeden okres w całości (ze stronicowaniem).
+
+        `allow_shrink` pozwala zawęzić okres, gdy API odmówi z powodu limitu
+        historii - używane dla najnowszego okresu, który jest najcenniejszy.
+        """
+        try:
+            return self._window_rows(path, params, window_start, window_end, kwargs)
+        except BitgetError as exc:
+            if not (allow_shrink and is_range_error(exc)):
+                raise
+            shrunk = self._shrink_window(path, params, window_start, window_end, kwargs)
+            if shrunk is None:
+                raise
+            return shrunk
+
     def _window_rows(self, path, params, window_start, window_end, kwargs):
         call_params = dict(params or {})
         call_params["startTime"] = window_start

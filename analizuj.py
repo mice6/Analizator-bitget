@@ -45,7 +45,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     )
     parser.add_argument("--transfer-coins", default=None, help="Monety do sprawdzenia w historii transferów (domyślnie: wykryte automatycznie).")
     parser.add_argument("--dodatkowe-przeplywy", "--extra-flows", dest="extra_flows", default=None, help="CSV z wpłatami/wypłatami starszymi niż limity API.")
-    parser.add_argument("--skip", default="", help="Moduły do pominięcia: wallet,spot,fills,futures,positions,earn,transfers")
+    parser.add_argument(
+        "--historia",
+        choices=["pelna", "szybka"],
+        default="pelna",
+        help="pelna: 2 lata z rejestrów podatkowych (wolne przy grid botach, "
+             "limit 1 zapytanie/s). szybka: 90 dni z ksiąg rachunków.",
+    )
+    parser.add_argument("--skip", default="", help="Moduły do pominięcia: wallet,spot,fills,futures,positions,earn,transfers,rejestry")
     parser.add_argument("--rps", type=float, default=8.0, help="Maksymalna liczba żądań na sekundę.")
     parser.add_argument("--csv-sep", default=";", help="Separator kolumn w CSV.")
     parser.add_argument("--csv-decimal", default=",", help="Separator dziesiętny w CSV.")

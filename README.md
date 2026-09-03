@@ -165,6 +165,7 @@ Najważniejsze opcje:
 | `--dodatkowe-przeplywy PLIK.csv` | ręczne uzupełnienie starych wpłat/wypłat |
 | `--skip` | pomiń moduły: `wallet,spot,fills,futures,positions,earn,transfers` |
 | `--product-types` | domyślnie `USDT-FUTURES,COIN-FUTURES,USDC-FUTURES` |
+| `--historia` | `pelna` (2 lata z rejestrów) albo `szybka` (90 dni z ksiąg) |
 | `--rps` | globalny limit żądań na sekundę (domyślnie 8) |
 | `--csv-sep`, `--csv-decimal` | domyślnie `;` i `,` — CSV otwiera się wprost w polskim Excelu |
 | `--json` | dodatkowo `raport/raport.json` |
@@ -194,6 +195,26 @@ tempa. Po odbiciu limitem skrypt zwalnia (5 s, 15 s, 30 s, 60 s), a gdy endpoint
 odbija mimo wszystko — **pomija go i idzie dalej**, przechodząc na źródło
 awaryjne, zamiast wysadzać cały przebieg albo mielić w nieskończoność.
 Pobranie dwóch lat historii zajmuje około minuty.
+
+### Konta z grid botami
+
+Grid boty zostawiają wpis przy każdym przecięciu siatki — spotykane są **ponad
+100 000 wpisów miesięcznie**. Skrypt nie trzyma ich w pamięci: rekordy są zwijane
+w locie do miesięcznych sum per moneta i kategoria (milion wpisów → kilka wierszy,
+zero megabajtów). Sumy miesięczne i wynik całkowity są przez to dokładne
+niezależnie od wolumenu.
+
+Zostaje jednak czas pobierania: 100 000 wpisów to 200 stron po 500 rekordów,
+a rejestry podatkowe znoszą **1 zapytanie na sekundę**. Pełne dwa lata takiego
+konta to nawet półtorej godziny. Stąd przełącznik:
+
+- **pełna** — 2 lata z rejestrów podatkowych; postęp zapisywany po każdym okresie,
+  więc przerwany przebieg wznawia się bez straty,
+- **szybka** — 90 dni z ksiąg rachunków (limit 10/s zamiast 1/s), kilka minut.
+
+Przy bardzo dużej liczbie transakcji rozbicie **wg pary** liczone jest tylko
+z ostatnich 90 dni (dokładne dane z `trade/fills`); sumy miesięczne i tak
+obejmują cały pobrany zakres. Skrypt mówi o tym w ostrzeżeniach.
 
 Pobrane okresy trafiają do **pamięci podręcznej** (`raport/cache_okresow.json`),
 więc powtórne uruchomienie analizy nie pyta o nie ponownie. To istotne, bo pula

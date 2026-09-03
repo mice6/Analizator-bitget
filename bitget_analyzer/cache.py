@@ -75,3 +75,8 @@ class WindowCache:
 
     def __len__(self) -> int:
         return len(self._data)
+
+    def __bool__(self) -> bool:
+        # Bez tego pusta pamięć podręczna byłaby falsy i ciche `if cache`
+        # pomijałoby ją przy pierwszym uruchomieniu.
+        return True
