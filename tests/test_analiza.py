@@ -694,3 +694,50 @@ class TestParsowanieLiczb(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestZgodnosciPamieciPodrecznej(unittest.TestCase):
+    """Plik z poprzedniej wersji nie może cicho dać zerowych sum."""
+
+    def test_stary_format_jest_odrzucany(self):
+        import json
+
+        from bitget_analyzer.cache import WindowCache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cache_okresow.json"
+            # Format sprzed zmiany: surowe wiersze z API, bez wersji.
+            path.write_text(
+                json.dumps({"/api/v2/tax/spot-record|1|2": [{"id": "1", "amount": "5"}]}),
+                encoding="utf-8",
+            )
+            cache = WindowCache(path)
+            self.assertEqual(len(cache), 0, "stary format musi zostać odrzucony")
+            self.assertIsNone(cache.get("/api/v2/tax/spot-record|1|2"))
+
+    def test_nowy_format_przezywa_zapis_i_odczyt(self):
+        from bitget_analyzer.cache import FORMAT_VERSION, WindowCache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "c.json"
+            cache = WindowCache(path)
+            cache.put("k", [{"b": [["2026-08", "USDT", "trade", 1.0, -0.1, 3, 1]]}])
+            cache.save()
+
+            import json
+
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(raw["__format__"], FORMAT_VERSION)
+
+            reopened = WindowCache(path)
+            self.assertEqual(len(reopened), 1)
+            self.assertIsNotNone(reopened.get("k"))
+
+    def test_uszkodzony_plik_nie_wywraca_analizy(self):
+        from bitget_analyzer.cache import WindowCache
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "c.json"
+            path.write_text("{to nie jest json", encoding="utf-8")
+            cache = WindowCache(path)
+            self.assertEqual(len(cache), 0)
