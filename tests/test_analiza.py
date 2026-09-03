@@ -434,6 +434,62 @@ class TestFuturesZPozycji(unittest.TestCase):
         self.assertAlmostEqual(powtorzona.futures_pnl_total, 100.0, places=6)
 
 
+class TestWynikuBotowZKsiegi(unittest.TestCase):
+    """Zlecenia botów nie trafiają do /spot/trade/fills - liczymy je z księgi."""
+
+    def _dataset(self, with_fill: bool):
+        from bitget_analyzer.model import CAT_TRADE, Fill, LedgerEntry
+
+        data = Dataset()
+        # Zamknięty cykl bota: kupno 100 USDT -> BTC, sprzedaż BTC -> 110 USDT.
+        legs = [
+            ("USDT", -100.0, -0.1),
+            ("BTC", 0.0025, 0.0),
+            ("BTC", -0.0025, 0.0),
+            ("USDT", 110.0, -0.11),
+        ]
+        for index, (coin, amount, fee) in enumerate(legs):
+            data.spot_ledger.append(
+                LedgerEntry(
+                    ts=days_ago(40) + index, account="spot", coin=coin,
+                    amount=amount, fee=fee, category=CAT_TRADE,
+                    business_type="BUY" if amount > 0 else "SELL",
+                    entry_id=str(index),
+                )
+            )
+        if with_fill:
+            data.fills.append(
+                Fill(ts=days_ago(40), symbol="BTCUSDT", base="BTC", quote="USDT",
+                     side="buy", price=40000, size=0.0025, quote_amount=100,
+                     fee=-0.1, fee_coin="USDT", trade_id="realny")
+            )
+        return data
+
+    def test_wynik_z_ksiegi_gdy_brak_transakcji(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            data = self._dataset(with_fill=False)
+            analysis = Analyzer(data, prices).build()
+
+        # 110 - 100 - 0.21 prowizji = 9.79
+        self.assertAlmostEqual(analysis.spot_realized_total, 9.79, places=6)
+        self.assertTrue(any("z księgi rachunku" in w for w in data.warnings))
+
+    def test_brak_podwojnego_liczenia_gdy_transakcje_sa(self):
+        """Miesiąc pokryty dokładnymi transakcjami nie może być liczony dwa razy."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            prices.load_symbols()
+            data = self._dataset(with_fill=True)
+            analysis = Analyzer(data, prices).build()
+
+        # Wynik pochodzi z silnika transakcji, nie z sumy księgi.
+        self.assertNotAlmostEqual(analysis.spot_realized_total, 9.79, places=6)
+        self.assertFalse(any("z księgi rachunku" in w for w in data.warnings))
+
+
 class TestSprzedazBezHistorii(unittest.TestCase):
     """Sprzedaż monety kupionej przed początkiem zakresu nie może udawać zysku."""
 

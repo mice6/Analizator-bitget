@@ -338,7 +338,39 @@ class Analyzer:
         ) and self.data.closed_positions:
             self._futures_from_positions(row_for)
 
-        # 4. Spot - pozycje spoza handlu (odsetki, nagrody, korekty).
+        # 4a. Wynik handlu spot z księgi - dla miesięcy, których nie pokrywają
+        # dokładne transakcje. Boty (grid, martingale) często nie pojawiają się
+        # w /spot/trade/fills, a bez tego ich wynik w ogóle by nie wszedł.
+        fill_months = {
+            month_key(fill.ts) for fill in self.data.fills if fill.size > 0
+        }
+        ledger_spot: Dict[str, float] = defaultdict(float)
+        ledger_spot_entries = 0
+        for entry in self.data.spot_ledger:
+            if entry.category != CAT_TRADE:
+                continue
+            ledger_spot_entries += 1
+            if entry.month in fill_months:
+                continue
+            # Obie nogi transakcji wyceniamy kursem z chwili operacji: przy
+            # zwykłej zamianie dają zero, a przy zamkniętym cyklu bota - zysk.
+            ledger_spot[entry.month] += self.to_usd(
+                entry.coin, entry.amount, entry.ts
+            ) + self.to_usd(entry.coin, entry.fee, entry.ts)
+
+        for month, value in ledger_spot.items():
+            row_for(month).spot_realized += value
+
+        if ledger_spot and ledger_spot_entries:
+            self.data.warn(
+                f"Wynik spot za {len(ledger_spot)} miesięcy policzony z księgi "
+                f"rachunku ({ledger_spot_entries} operacji), bo endpoint transakcji "
+                "nie zwraca zleceń botów. To wynik zrealizowany na zamkniętych "
+                "cyklach; zmiany wyceny monet, które nadal trzymasz, siedzą "
+                "w pozycji 'różnica do wyniku rzeczywistego'."
+            )
+
+        # 4b. Spot - pozycje spoza handlu (odsetki, nagrody, korekty).
         for entry in self.data.spot_ledger:
             if entry.category in (CAT_TRANSFER, CAT_TRADE):
                 continue

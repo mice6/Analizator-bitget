@@ -275,6 +275,19 @@ Traktuj sekcję 3 jako prawdę, a sekcję 4 jako wyjaśnienie.
 To samo rozbicie w ujęciu miesięcznym (pełne dane w `miesiace.csv`). Tu zwykle
 widać, że pojedyncze złe miesiące zjadły dorobek kilku dobrych.
 
+### Wynik botów (grid, martingale)
+
+Zlecenia botów często **nie pojawiają się** w endpoincie transakcji
+(`/spot/trade/fills`) — na koncie z botami potrafi on zwrócić kilka rekordów przy
+tysiącach operacji w księdze. Dla miesięcy, których nie pokrywają dokładne
+transakcje, wynik spot liczony jest wtedy z księgi rachunku: obie nogi każdej
+operacji wyceniane są kursem z chwili jej wykonania, więc zwykła zamiana daje
+zero, a zamknięty cykl bota — faktyczny zysk lub stratę. Miesiąc pokryty
+dokładnymi transakcjami nigdy nie jest liczony dwa razy.
+
+Zmiany wyceny monet, które nadal trzymasz, nie wchodzą do tej pozycji —
+lądują w „różnicy do wyniku rzeczywistego".
+
 ### Sekcja 6 — wynik wg pary
 Zrealizowany P&L spot liczony metodą **średniej ważonej ceny nabycia**: zakupy
 podnoszą podstawę kosztową, sprzedaże realizują różnicę; prowizje są wliczone.
