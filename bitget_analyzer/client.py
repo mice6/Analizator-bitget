@@ -176,6 +176,10 @@ def time_windows(
     """
     span = window_days * 24 * 60 * 60 * 1000 - 1000
     grid = window_days * 24 * 60 * 60 * 1000
+    if align_to_grid:
+        # Początek też przyklejamy do siatki - inaczej najstarsze okno
+        # przesuwałoby się każdego dnia i nigdy nie trafiało w pamięć podręczną.
+        start_ms = (start_ms // grid) * grid
     windows = []
     cursor = end_ms
     while cursor > start_ms:

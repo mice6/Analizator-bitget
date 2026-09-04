@@ -77,6 +77,11 @@ FIXTURES = {
         {"id": "5", "coin": "USDT", "spotTaxType": "Buy", "amount": "2500", "fee": "-2.5", "bizOrderId": "O2", "ts": str(days_ago(90))},
         {"id": "6", "coin": "USDT", "spotTaxType": "Transfer", "amount": "-300", "fee": "0", "bizOrderId": "", "ts": str(days_ago(45))},
     ],
+    "/api/v2/tax/p2p-record": [
+        {"id": "p1", "coin": "USDT", "p2pTaxType": "buy", "balance": "300", "ts": str(days_ago(300))},
+        {"id": "p2", "coin": "USDT", "p2pTaxType": "sell", "balance": "50", "ts": str(days_ago(150))},
+        {"id": "p3", "coin": "USDT", "p2pTaxType": "transfer_in", "balance": "999", "ts": str(days_ago(140))},
+    ],
     "/api/v2/tax/future-record": [
         {"id": "f1", "symbol": "BTCUSDT", "marginCoin": "USDT", "futureTaxType": "close_long", "amount": "100", "fee": "-0.5", "ts": str(days_ago(35))},
         {"id": "f2", "symbol": "BTCUSDT", "marginCoin": "USDT", "futureTaxType": "contract_settle_fee", "amount": "-3", "fee": "0", "ts": str(days_ago(34))},
@@ -196,17 +201,18 @@ class TestPipeline(unittest.TestCase):
         cls.tmp.cleanup()
 
     def test_wplaty_wyceniane_kursem_z_dnia(self):
-        # 1000 USDT + 0.1 BTC * 45 000 (kurs z dnia wpłaty) = 5500
-        self.assertAlmostEqual(self.analysis.deposits_total, 5500.0, places=6)
-        self.assertEqual(len(self.data.deposits), 2, "wpłata 'pending' nie powinna być liczona")
+        # 1000 USDT + 0.1 BTC * 45 000 (kurs z dnia wpłaty) + 300 z P2P
+        self.assertAlmostEqual(self.analysis.deposits_total, 5800.0, places=6)
+        self.assertEqual(len(self.data.deposits), 3, "wpłata 'pending' nie powinna być liczona")
 
     def test_wyplaty_pomniejszone_o_prowizje(self):
-        self.assertAlmostEqual(self.analysis.withdrawals_total, 499.0, places=6)
+        # 499 z wypłaty on-chain (500 minus prowizja) + 50 sprzedane przez P2P
+        self.assertAlmostEqual(self.analysis.withdrawals_total, 549.0, places=6)
 
     def test_realny_wynik(self):
-        # 5500 (portfel) - 5500 (wpłaty) + 499 (wypłaty)
+        # 5500 (portfel) - 5800 (wpłaty) + 549 (wypłaty)
         self.assertAlmostEqual(self.analysis.equity_now, 5500.0, places=6)
-        self.assertAlmostEqual(self.analysis.real_pnl, 499.0, places=6)
+        self.assertAlmostEqual(self.analysis.real_pnl, 249.0, places=6)
 
     def test_zrealizowany_pnl_spot(self):
         # BTC z dokładnych transakcji: 5000 - 4000 - 9 prowizji = 991
@@ -235,7 +241,7 @@ class TestPipeline(unittest.TestCase):
         self.assertAlmostEqual(by_month[month_of(200)].deposits, 1000.0, places=6)
         self.assertAlmostEqual(by_month[month_of(180)].deposits, 4500.0, places=6)
         self.assertAlmostEqual(by_month[month_of(120)].withdrawals, 499.0, places=6)
-        self.assertAlmostEqual(sum(r.deposits for r in self.analysis.months), 5500.0, places=6)
+        self.assertAlmostEqual(sum(r.deposits for r in self.analysis.months), 5800.0, places=6)
         self.assertAlmostEqual(
             sum(r.spot_realized for r in self.analysis.months), 1488.5, places=6
         )
@@ -255,7 +261,7 @@ class TestPipeline(unittest.TestCase):
             self.assertTrue(path.is_file(), f"brak pliku {path}")
         summary = (self.cfg.out_dir / "podsumowanie.csv").read_text(encoding="utf-8-sig")
         self.assertIn("REALNY ZYSK/STRATA", summary)
-        self.assertIn("499", summary)
+        self.assertIn("249", summary)
 
     def test_raport_konsolowy_nie_wybucha(self):
         Reporter(self.cfg, self.data, self.analysis).print_console()
@@ -357,10 +363,10 @@ class TestKapitaluZaCaleZycieKonta(unittest.TestCase):
             cfg.start = NOW - timedelta(days=30)
             _, analysis, _ = build_dataset(cfg, FakeClient(cfg))
 
-        # ...ale wpłaty sprzed 200 i 180 dni muszą wejść do wyniku.
-        self.assertAlmostEqual(analysis.deposits_total, 5500.0, places=6)
-        self.assertAlmostEqual(analysis.withdrawals_total, 499.0, places=6)
-        self.assertAlmostEqual(analysis.real_pnl, 499.0, places=6)
+        # ...ale wpłaty sprzed 200 i 300 dni muszą wejść do wyniku.
+        self.assertAlmostEqual(analysis.deposits_total, 5800.0, places=6)
+        self.assertAlmostEqual(analysis.withdrawals_total, 549.0, places=6)
+        self.assertAlmostEqual(analysis.real_pnl, 249.0, places=6)
 
     def test_wynik_nie_zalezy_od_szerokosci_zakresu(self):
         wyniki = []
@@ -372,6 +378,44 @@ class TestKapitaluZaCaleZycieKonta(unittest.TestCase):
                 _, analysis, _ = build_dataset(cfg, FakeClient(cfg))
                 wyniki.append(round(analysis.real_pnl, 6))
         self.assertEqual(len(set(wyniki)), 1, f"wynik zmienia się z zakresem: {wyniki}")
+
+
+class TestKapitaluZP2P(unittest.TestCase):
+    """Zakup krypto za walutę przez P2P to kapitał z zewnątrz, nie zysk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = make_config(Path(self.tmp.name))
+        self.cfg.requests_per_second = 0
+        self.data, self.analysis, _ = build_dataset(self.cfg, FakeClient(self.cfg))
+
+    def test_zakup_liczy_sie_jak_wplata(self):
+        p2p = [flow for flow in self.data.deposits if flow.source == "p2p"]
+        self.assertEqual(len(p2p), 1)
+        self.assertAlmostEqual(p2p[0].usd_value, 300.0, places=6)
+        # Wpłaty on-chain (5500) plus zakup P2P (300).
+        self.assertAlmostEqual(self.analysis.deposits_total, 5800.0, places=6)
+
+    def test_sprzedaz_liczy_sie_jak_wyplata(self):
+        p2p = [flow for flow in self.data.withdrawals if flow.source == "p2p"]
+        self.assertEqual(len(p2p), 1)
+        self.assertAlmostEqual(self.analysis.withdrawals_total, 549.0, places=6)
+
+    def test_transfery_p2p_nie_sa_kapitalem(self):
+        """transfer_in to ruch w obrębie giełdy, nie nowe pieniądze."""
+        wszystkie = self.data.deposits + self.data.withdrawals
+        self.assertFalse([f for f in wszystkie if f.amount == 999])
+
+    def test_wynik_uwzglednia_kapital_z_p2p(self):
+        # 5500 (portfel) - 5800 (wpłaty) + 549 (wypłaty) = 249
+        self.assertAlmostEqual(self.analysis.real_pnl, 249.0, places=6)
+
+    def test_p2p_widoczne_w_eksporcie(self):
+        reporter = Reporter(self.cfg, self.data, self.analysis)
+        reporter.export_csv()
+        csv = (self.cfg.out_dir / "przeplywy_zewnetrzne.csv").read_text(encoding="utf-8-sig")
+        self.assertIn("p2p", csv)
 
 
 class TestKlasyfikacjiEarn(unittest.TestCase):
@@ -748,8 +792,8 @@ class TestPamieciPodrecznej(unittest.TestCase):
         data, cache, second = self._run()
         drugi_raz = self._calls(second, "/api/v2/tax/")
         # Zamknięte okresy z pamięci; dopytujemy tylko o trwający okres
-        # (po jednym na endpoint), bo jego zawartość jeszcze się zmieni.
-        self.assertLessEqual(len(drugi_raz), 2, drugi_raz)
+        # (po jednym na endpoint: spot, futures, p2p).
+        self.assertLessEqual(len(drugi_raz), 3, drugi_raz)
         self.assertLess(len(drugi_raz), len(pierwszy_raz))
         self.assertTrue(cache.hits)
         self.assertTrue(data.spot_ledger)

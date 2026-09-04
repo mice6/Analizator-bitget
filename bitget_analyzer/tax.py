@@ -14,7 +14,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .cache import WindowCache
-from .client import BitgetClient, BitgetError, time_windows
+from .client import BitgetClient, BitgetError, dedupe, time_windows
 from .config import Config
 from .futures import _classify as classify_futures
 from .limits import window_guard
@@ -27,6 +27,7 @@ from .model import (
     CAT_TRANSFER,
     CAT_WITHDRAW,
     Dataset,
+    ExternalFlow,
     Fill,
     LedgerEntry,
     to_float,
@@ -37,6 +38,10 @@ log = logging.getLogger("bitget.tax")
 
 SPOT_TAX_PATH = "/api/v2/tax/spot-record"
 FUTURES_TAX_PATH = "/api/v2/tax/future-record"
+P2P_TAX_PATH = "/api/v2/tax/p2p-record"
+
+# Endpoint P2P przyjmuje szersze okna niż pozostałe rejestry.
+P2P_WINDOW_DAYS = 180
 
 TAX_WINDOW_DAYS = 30
 TAX_PAGE_LIMIT = 500
@@ -351,6 +356,84 @@ def fetch_futures_records(
         coverage.records = aggregator.records
     log.info("Rejestr futures: %d wpisów zwiniętych do %d sum miesięcznych.",
              aggregator.records, len(aggregator.buckets))
+
+
+def fetch_p2p_flows(
+    client: BitgetClient,
+    cfg: Config,
+    prices: PriceBook,
+    data: Dataset,
+    start_ms: int,
+    cache: Optional[WindowCache] = None,
+) -> None:
+    """Zakupy i sprzedaże przez P2P - kapitał wchodzący i wychodzący za walutę.
+
+    Historia wpłat obejmuje wyłącznie przelewy on-chain. Kto kupuje krypto
+    za złotówki przez P2P, wnosi kapitał kanałem, którego tam nie widać -
+    a bez niego wzór "aktywa - wpłaty + wypłaty" zawyża wynik.
+    """
+    coverage = data.coverage_for("P2P (zakupy za walutę)")
+    rows = dedupe(
+        client.paginate_windows(
+            P2P_TAX_PATH,
+            {},
+            start_ms,
+            cfg.end_ms,
+            P2P_WINDOW_DAYS,
+            limit=TAX_PAGE_LIMIT,
+            label="P2P",
+            cache=cache,
+            on_window_error=window_guard(data, coverage, "P2P"),
+        ),
+        "id",
+    )
+
+    added = 0
+    internal = 0
+    for row in rows:
+        ts = int(to_float(row.get("ts") or row.get("cTime")))
+        if not ts:
+            continue
+        kind = str(row.get("p2pTaxType") or row.get("taxType") or "").lower()
+        quantity = abs(to_float(row.get("balance") or row.get("amount")))
+        if quantity <= 0:
+            continue
+
+        if "buy" in kind:
+            direction = "deposit"
+        elif "sell" in kind:
+            direction = "withdraw"
+        else:
+            # transfer_in / transfer_out to przesunięcia w obrębie giełdy.
+            internal += 1
+            continue
+
+        coin = str(row.get("coin", "")).upper()
+        price, price_source = prices.at(coin, ts)
+        flow = ExternalFlow(
+            ts=ts,
+            direction=direction,
+            coin=coin,
+            amount=quantity,
+            usd_value=quantity * price,
+            price=price,
+            price_source=price_source,
+            tx_id=str(row.get("id", "")),
+            status=kind,
+            source="p2p",
+        )
+        (data.deposits if direction == "deposit" else data.withdrawals).append(flow)
+        coverage.observe(ts)
+        added += 1
+
+    if added:
+        data.warn(
+            f"Doliczono {added} operacji P2P jako kapitał zewnętrzny "
+            "(zakup za walutę = wpłata, sprzedaż = wypłata). Sprawdź je "
+            "w przeplywy_zewnetrzne.csv (kolumna 'zrodlo' = p2p) - kwoty "
+            "wyceniam kursem rynkowym z dnia operacji, a nie ceną z ogłoszenia."
+        )
+    log.info("P2P: %d operacji zewnętrznych, %d wewnętrznych.", added, internal)
 
 
 # --------------------------------------------------------- odtwarzanie transakcji

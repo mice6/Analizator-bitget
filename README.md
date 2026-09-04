@@ -176,8 +176,9 @@ Najważniejsze opcje:
 
 | Dane | Endpoint API v2 | Jak daleko wstecz |
 |---|---|---|
-| Wpłaty | `/api/v2/spot/wallet/deposit-records` | pełna historia (okna 89 dni) |
-| Wypłaty | `/api/v2/spot/wallet/withdrawal-records` | pełna historia (okna 89 dni) |
+| Wpłaty on-chain | `/api/v2/spot/wallet/deposit-records` | pełna historia (okna 89 dni) |
+| Wypłaty on-chain | `/api/v2/spot/wallet/withdrawal-records` | pełna historia (okna 89 dni) |
+| **Zakupy i sprzedaże P2P** | `/api/v2/tax/p2p-record` | pełna historia (okna 180 dni) |
 | **Rejestr spot** | `/api/v2/tax/spot-record` | **~2 lata** (okna 30 dni) |
 | **Rejestr futures** | `/api/v2/tax/future-record` | **~2 lata** (okna 30 dni) |
 | Szczegóły transakcji spot | `/api/v2/spot/trade/fills` | ~90 dni |
@@ -254,6 +255,21 @@ Podpis żądania: `ACCESS-SIGN = base64(HMAC_SHA256(secret, timestamp + "GET" +
 ---
 
 ## 6. Jak czytać raport
+
+### Skąd bierze się kapitał
+
+Kapitał wniesiony z zewnątrz to nie tylko przelewy on-chain. Kto kupuje krypto
+za złotówki przez **P2P**, wnosi pieniądze kanałem, którego `deposit-records`
+w ogóle nie pokazuje — a bez tego wzór zawyża wynik o całą kupioną kwotę.
+Skrypt liczy więc jako kapitał:
+
+- wpłaty i wypłaty on-chain,
+- **zakup P2P** jako wpłatę, **sprzedaż P2P** jako wypłatę
+  (`transfer_in`/`transfer_out` w P2P to ruchy wewnętrzne i nie są liczone).
+
+Operacje P2P mają w `przeplywy_zewnetrzne.csv` kolumnę `zrodlo` = `p2p`.
+Wyceniane są kursem rynkowym z dnia operacji, a nie ceną z ogłoszenia, więc
+przy dużym spreadzie mogą się nieco różnić od kwoty faktycznie zapłaconej.
 
 ### Sekcja 3 — REALNY ZYSK / STRATA
 Twarda liczba. Wpłaty i wypłaty są zawsze pobierane **za całe życie konta**,

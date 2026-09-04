@@ -13,10 +13,16 @@ from .earn import fetch_savings_history
 from .futures import fetch_closed_positions, fetch_futures_bills
 from .model import Dataset
 from .prices import PriceBook
-from .limits import API_HISTORY_DAYS, effective_start
+from .limits import (
+    API_HISTORY_DAYS,
+    FLOWS_HISTORY_DAYS,
+    effective_start,
+    lifetime_start,
+)
 from .spot import coins_seen, fetch_spot_bills, fetch_spot_fills
 from .tax import (
     fetch_futures_records,
+    fetch_p2p_flows,
     fetch_spot_records,
     oldest_fill_ts,
     synthesize_fills,
@@ -71,6 +77,10 @@ def collect(
     if step("wallet", 2):
         fetch_deposits(client, cfg, prices, data, cache)
         fetch_withdrawals(client, cfg, prices, data, cache)
+        # Zakup krypto za walutę przez P2P też jest kapitałem z zewnątrz.
+        fetch_p2p_flows(
+            client, cfg, prices, data, lifetime_start(cfg, FLOWS_HISTORY_DAYS), cache
+        )
 
     # Rejestry podatkowe sięgają ~2 lat wstecz - to podstawowe źródło historii.
     # Księgi rachunków (90 dni) uruchamiamy tylko wtedy, gdy rejestr zawiódł.

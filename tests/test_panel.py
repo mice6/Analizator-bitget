@@ -304,8 +304,8 @@ class TestPrzebiegAnalizyWPanelu(unittest.TestCase):
             self.assertEqual(snapshot["status"], "done", snapshot.get("blad"))
 
             result = snapshot["wynik"]
-            self.assertAlmostEqual(result["realny_wynik_usdt"], 499.0, places=6)
-            self.assertAlmostEqual(result["wplaty_usdt"], 5500.0, places=6)
+            self.assertAlmostEqual(result["realny_wynik_usdt"], 249.0, places=6)
+            self.assertAlmostEqual(result["wplaty_usdt"], 5800.0, places=6)
             self.assertTrue(result["miesiace"])
             self.assertTrue(result["pokrycie"])
 
@@ -382,8 +382,14 @@ class TestTrybuHistorii(unittest.TestCase):
             client = FakeClient(cfg)
             data = collect(cfg, client, PriceBook(client))
 
-        tax_calls = [p for p, _ in client.calls if p.startswith("/api/v2/tax/")]
-        self.assertEqual(tax_calls, [], "tryb szybki nie może pytać o rejestry")
+        rejestry = [
+            p for p, _ in client.calls
+            if p in ("/api/v2/tax/spot-record", "/api/v2/tax/future-record")
+        ]
+        self.assertEqual(rejestry, [], "tryb szybki nie może pytać o rejestry")
+        # P2P to kapitał zewnętrzny - potrzebny w każdym trybie.
+        p2p = [p for p, _ in client.calls if p == "/api/v2/tax/p2p-record"]
+        self.assertTrue(p2p, "P2P musi być pobrane także w trybie szybkim")
         # Zamiast tego wchodzi księga rachunku.
         bills = [p for p, _ in client.calls if "account/bills" in p]
         self.assertTrue(bills, "powinien sięgnąć po księgę spot")
