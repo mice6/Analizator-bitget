@@ -291,6 +291,14 @@ transakcjami nigdy nie jest liczony dwa razy.
 Zmiany wyceny monet, które nadal trzymasz, nie wchodzą do tej pozycji —
 lądują w „różnicy do wyniku rzeczywistego".
 
+W trybie **pełnym** rejestr jest zwijany do sum miesięcznych (setki tysięcy
+operacji nie zmieszczą się w pamięci), więc kosztu nabycia nie da się prowadzić
+operacja po operacji. Wynik liczony jest wtedy z miesięcznych sum: każda moneta
+wyceniana jednym kursem na koniec miesiąca. Zamknięty cykl bota zostawia czysty
+zysk w walucie kwotowanej, ale miesiąc z dużymi zakupami wyjdzie na minus —
+wartość kupionych monet widać wtedy w wycenie portfela. Raport mówi wprost,
+która metoda została użyta.
+
 ### Sekcja 6 — wynik wg pary
 Zrealizowany P&L spot liczony metodą **średniej ważonej ceny nabycia**: zakupy
 podnoszą podstawę kosztową, sprzedaże realizują różnicę; prowizje są wliczone.

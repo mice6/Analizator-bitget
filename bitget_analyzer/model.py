@@ -103,6 +103,9 @@ class LedgerEntry:
     symbol: str = ""
     product_type: str = ""
     entry_id: str = ""
+    # True dla sum miesięcznych z rejestru podatkowego (setki tysięcy operacji
+    # zwiniętych do jednego wiersza) - liczy się je inną metodą.
+    aggregated: bool = False
 
     @property
     def month(self) -> str:

@@ -150,6 +150,7 @@ class LedgerAggregator:
                 category=category,
                 business_type=f"{category} ({int(values[2])} operacji)",
                 entry_id=f"{month}:{coin}:{category}",
+                aggregated=True,
             )
 
 

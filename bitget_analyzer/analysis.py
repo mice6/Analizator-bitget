@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -23,6 +24,17 @@ from .model import (
 from .prices import STABLECOINS, PriceBook
 
 log = logging.getLogger("bitget.analysis")
+
+
+def _month_end_ts(month: str) -> int:
+    """Ostatnia chwila miesiąca 'RRRR-MM' (albo teraz, jeśli miesiąc trwa)."""
+    year, mon = (int(part) for part in month.split("-"))
+    if mon == 12:
+        following = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        following = datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+    end = int(following.timestamp() * 1000) - 1
+    return min(end, int(datetime.now(timezone.utc).timestamp() * 1000))
 
 
 @dataclass
@@ -237,6 +249,11 @@ class Analyzer:
         if not entries:
             return {}
 
+        # Rejestr podatkowy jest zwijany do sum miesięcznych - na nich nie da
+        # się prowadzić kosztu nabycia operacja po operacji.
+        if any(entry.aggregated for entry in entries):
+            return self._spot_from_monthly_sums(entries)
+
         positions: Dict[str, Position] = defaultdict(Position)
         realized: Dict[str, float] = defaultdict(float)
         uncovered: set = set()
@@ -288,6 +305,35 @@ class Analyzer:
                 + ", ".join(sorted(uncovered)[:8])
                 + ". Ich wynik jest niepełny - rozszerz zakres analizy."
             )
+        return dict(realized)
+
+    def _spot_from_monthly_sums(self, entries: List[LedgerEntry]) -> Dict[str, float]:
+        """Wynik spot z miesięcznych sum rejestru podatkowego.
+
+        Każdą monetę wyceniamy JEDNYM kursem na koniec miesiąca, a nie kursem
+        z chwili każdej operacji. To istotne: wycena obu nóg kursem z momentu
+        wymiany zawsze daje zero, bo wymiana odbywa się po kursie rynkowym.
+        Przy wspólnym kursie zamknięty cykl bota (moneta wraca do stanu
+        wyjściowego) zostawia czysty zysk w walucie kwotowanej.
+
+        Wynik zawiera też zmianę stanu posiadania monet w danym miesiącu -
+        zakup, którego bot jeszcze nie zamknął, obniża wynik miesiąca, a jego
+        dzisiejsza wartość i tak jest w wycenie portfela.
+        """
+        realized: Dict[str, float] = defaultdict(float)
+        for entry in entries:
+            reference_ts = _month_end_ts(entry.month)
+            realized[entry.month] += self.to_usd(entry.coin, entry.amount, reference_ts)
+            if entry.fee:
+                realized[entry.month] += self.to_usd(entry.coin, entry.fee, reference_ts)
+
+        self.data.warn(
+            f"Wynik spot za {len(realized)} miesięcy policzony z miesięcznych sum "
+            "rejestru podatkowego (konto ma zbyt wiele operacji, by liczyć je "
+            "pojedynczo). Obejmuje też zmianę stanu monet w danym miesiącu, "
+            "więc miesiąc z dużymi zakupami wyjdzie na minus, a ich wartość "
+            "widać w wycenie portfela."
+        )
         return dict(realized)
 
     def _futures_from_positions(self, row_for) -> None:
