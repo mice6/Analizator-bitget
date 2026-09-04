@@ -216,8 +216,13 @@ Przy bardzo dużej liczbie transakcji rozbicie **wg pary** liczone jest tylko
 z ostatnich 90 dni (dokładne dane z `trade/fills`); sumy miesięczne i tak
 obejmują cały pobrany zakres. Skrypt mówi o tym w ostrzeżeniach.
 
-Pobrane okresy trafiają do **pamięci podręcznej** (`raport/cache_okresow.json`),
-więc powtórne uruchomienie analizy nie pyta o nie ponownie. To istotne, bo pula
+Pobrane okresy trafiają do **pamięci podręcznej** (`raport/cache_okresow.json`) —
+dotyczy to wszystkich źródeł, nie tylko rejestrów: wpłata z 2021 roku już się nie
+zmieni, więc kolejne uruchomienia jej nie pobierają. Granice okresów są przyklejone
+do stałej siatki liczonej od epoki, dzięki czemu przeżywają restart nazajutrz;
+bez tego przesuwałyby się z każdą godziną i pamięć podręczna byłaby bezużyteczna.
+Ponownie pobierany jest wyłącznie **trwający** okres, bo jego zawartość jeszcze
+się zmieni. To istotne, bo pula
 zapytań do rejestrów podatkowych jest wąska i kilka przebiegów pod rząd potrafi
 ją wyczerpać — wtedy trzeba odczekać kilkanaście minut. Skasowanie tego pliku
 wymusza pełne pobranie od nowa.

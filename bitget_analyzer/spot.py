@@ -83,7 +83,9 @@ REWARD_BUSINESS_TYPES = {
 }
 
 
-def fetch_spot_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
+def fetch_spot_bills(
+    client: BitgetClient, cfg: Config, data: Dataset, cache=None
+) -> None:
     """Księga rachunku spot - używana awaryjnie, gdy rejestr podatkowy zawiedzie."""
     coverage = data.coverage_for("księga spot (90 dni)")
     rows = dedupe(
@@ -94,6 +96,7 @@ def fetch_spot_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
             cfg.end_ms,
             SPOT_WINDOW_DAYS,
             label="Księga spot",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Księga spot"),
         ),
         "billId",
@@ -141,7 +144,11 @@ def _parse_fee_detail(raw) -> tuple:
 
 
 def fetch_spot_fills(
-    client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset
+    client: BitgetClient,
+    cfg: Config,
+    prices: PriceBook,
+    data: Dataset,
+    cache=None,
 ) -> None:
     """Historia wykonanych transakcji spot - podstawa do zrealizowanego P&L."""
     coverage = data.coverage_for("transakcje spot (90 dni)")
@@ -153,6 +160,7 @@ def fetch_spot_fills(
             cfg.end_ms,
             SPOT_WINDOW_DAYS,
             label="Transakcje spot",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Transakcje spot"),
         ),
         "tradeId",

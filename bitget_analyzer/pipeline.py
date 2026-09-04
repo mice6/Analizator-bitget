@@ -69,8 +69,8 @@ def collect(
         prices.load_current()
 
     if step("wallet", 2):
-        fetch_deposits(client, cfg, prices, data)
-        fetch_withdrawals(client, cfg, prices, data)
+        fetch_deposits(client, cfg, prices, data, cache)
+        fetch_withdrawals(client, cfg, prices, data, cache)
 
     # Rejestry podatkowe sięgają ~2 lat wstecz - to podstawowe źródło historii.
     # Księgi rachunków (90 dni) uruchamiamy tylko wtedy, gdy rejestr zawiódł.
@@ -79,7 +79,7 @@ def collect(
             fetch_spot_records(client, cfg, data, effective_start(cfg, API_HISTORY_DAYS), cache)
         if not data.spot_ledger:
             log.info("Sięgam po księgę rachunku spot (90 dni, szybszy endpoint).")
-            fetch_spot_bills(client, cfg, data)
+            fetch_spot_bills(client, cfg, data, cache)
 
     if step("futures", 4):
         if cfg.enabled("rejestry"):
@@ -88,22 +88,22 @@ def collect(
             )
         if not data.futures_ledger:
             log.info("Sięgam po księgę rachunku futures.")
-            fetch_futures_bills(client, cfg, data)
+            fetch_futures_bills(client, cfg, data, cache)
 
     if step("fills", 5):
-        fetch_spot_fills(client, cfg, prices, data)
+        fetch_spot_fills(client, cfg, prices, data, cache)
         # Starsze zlecenia odtwarzamy z rejestru; granicą jest najstarsza
         # transakcja pobrana dokładnym endpointem, żeby nic nie policzyć dwa razy.
         synthesize_fills(data, prices, before_ts=oldest_fill_ts(data.fills))
 
     if step("positions", 6):
-        fetch_closed_positions(client, cfg, data)
+        fetch_closed_positions(client, cfg, data, cache)
 
     if step("earn", 7):
-        fetch_savings_history(client, cfg, data)
+        fetch_savings_history(client, cfg, data, cache)
 
     if step("transfers", 8):
-        fetch_transfers(client, cfg, data, coins_seen(data))
+        fetch_transfers(client, cfg, data, coins_seen(data), cache)
 
     if cfg.extra_flows:
         load_extra_flows(cfg.extra_flows, prices, data)

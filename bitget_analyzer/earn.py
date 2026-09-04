@@ -28,7 +28,9 @@ def _pick(row: dict, *names: str) -> float:
     return 0.0
 
 
-def fetch_savings_history(client: BitgetClient, cfg: Config, data: Dataset) -> None:
+def fetch_savings_history(
+    client: BitgetClient, cfg: Config, data: Dataset, cache=None
+) -> None:
     """Historia produktów Earn: subskrypcje, wykupy i naliczone odsetki."""
     coverage = data.coverage_for("earn")
     seen_ids = set()
@@ -44,6 +46,7 @@ def fetch_savings_history(client: BitgetClient, cfg: Config, data: Dataset) -> N
                 cfg.end_ms,
                 EARN_WINDOW_DAYS,
                 label=f"Earn {period_type} (pozycje)",
+                cache=cache,
                 on_window_error=window_guard(data, coverage, f"Earn {period_type}"),
             ),
             "orderId",
@@ -81,6 +84,7 @@ def fetch_savings_history(client: BitgetClient, cfg: Config, data: Dataset) -> N
                 cfg.end_ms,
                 EARN_WINDOW_DAYS,
                 label=f"Earn {period_type} (historia)",
+                cache=cache,
                 on_window_error=window_guard(data, coverage, f"Earn {period_type}"),
             ),
             "orderId",

@@ -159,19 +159,32 @@ def extract_list(data: Any) -> List[dict]:
     return []
 
 
-def time_windows(start_ms: int, end_ms: int, window_days: int) -> Iterator[Tuple[int, int]]:
+def time_windows(
+    start_ms: int, end_ms: int, window_days: int, align_to_grid: bool = False
+) -> Iterator[Tuple[int, int]]:
     """Dzieli zakres czasu na okna zgodne z limitami API (np. 90 dni).
 
     Okna wyznaczamy od końca zakresu wstecz, nie od początku. Dzięki temu
     najnowsze okno zawsze kończy się "teraz" i mieści w oknie retencji API -
     przy liczeniu od początku granice wypadałyby w przypadkowych miejscach
     i najnowsze dane potrafiły wpaść do okna odrzuconego jako za stare.
+
+    `align_to_grid` przykleja granice do stałej siatki liczonej od epoki.
+    Bez tego każde uruchomienie przesuwa wszystkie granice o tyle, ile minęło
+    czasu, i pamięć podręczna z poprzedniego dnia nadaje się do wyrzucenia.
+    Przy włączonej siatce zmienia się tylko najnowsze, niedokończone okno.
     """
     span = window_days * 24 * 60 * 60 * 1000 - 1000
+    grid = window_days * 24 * 60 * 60 * 1000
     windows = []
     cursor = end_ms
     while cursor > start_ms:
-        chunk_start = max(cursor - span, start_ms)
+        if align_to_grid:
+            chunk_start = max((cursor // grid) * grid, start_ms)
+            if chunk_start >= cursor:
+                chunk_start = max(cursor - span, start_ms)
+        else:
+            chunk_start = max(cursor - span, start_ms)
         windows.append((chunk_start, cursor))
         cursor = chunk_start - 1
     # Na krawędzi zakresu zostaje czasem szczątkowe okno liczone w milisekundach.
@@ -467,7 +480,9 @@ class BitgetClient:
         z nich kosztowałoby zapytanie. Błąd jednego okna nigdy nie unieważnia
         danych już pobranych z okien nowszych.
         """
-        windows = list(time_windows(start_ms, end_ms, window_days))
+        windows = list(
+            time_windows(start_ms, end_ms, window_days, align_to_grid=True)
+        )
         if newest_first:
             windows.reverse()
 
@@ -477,7 +492,9 @@ class BitgetClient:
         for index, (window_start, window_end) in enumerate(windows):
             period = f"{_stamp(window_start)} → {_stamp(window_end)}"
             cache_key = None
-            if cache is not None:
+            # Najnowszy okres wciąż trwa - jutro będzie zawierał więcej danych,
+            # więc nie wolno go utrwalać. Starsze już się nie zmienią.
+            if cache is not None and index > 0:
                 cache_key = cache.key(path, window_start, window_end)
                 cached = cache.get(cache_key)
                 if cached is not None:
@@ -486,6 +503,16 @@ class BitgetClient:
                         name, index + 1, total, period, len(cached),
                     )
                     yield from cached
+                    # Puste okresy z pamięci muszą liczyć się tak samo jak
+                    # pobrane - inaczej każdy przebieg schodziłby głębiej wstecz.
+                    if stop_after_empty:
+                        empty_streak = 0 if cached else empty_streak + 1
+                        if empty_streak >= stop_after_empty:
+                            log.info(
+                                "%s: %d kolejnych pustych okresów - dalej wstecz nic nie ma.",
+                                path, empty_streak,
+                            )
+                            return
                     continue
 
             log.info("%s: pobieram okres %d/%d (%s)...", name, index + 1, total, period)

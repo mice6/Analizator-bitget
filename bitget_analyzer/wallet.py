@@ -53,7 +53,13 @@ def _is_success(row: dict) -> bool:
     return status in SUCCESS_STATUSES or status == ""
 
 
-def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
+def fetch_deposits(
+    client: BitgetClient,
+    cfg: Config,
+    prices: PriceBook,
+    data: Dataset,
+    cache=None,
+) -> None:
     """Historia wpłat - zawsze za całe życie konta, nie za wybrany zakres."""
     coverage = data.coverage_for("wpłaty")
     rows = dedupe(
@@ -65,6 +71,7 @@ def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: D
             WALLET_WINDOW_DAYS,
             stop_after_empty=EMPTY_WINDOWS_LIMIT,
             label="Wpłaty",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Wpłaty"),
         ),
         "orderId",
@@ -102,7 +109,13 @@ def fetch_deposits(client: BitgetClient, cfg: Config, prices: PriceBook, data: D
     log.info("Wpłaty: %d rekordów.", len(data.deposits))
 
 
-def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data: Dataset) -> None:
+def fetch_withdrawals(
+    client: BitgetClient,
+    cfg: Config,
+    prices: PriceBook,
+    data: Dataset,
+    cache=None,
+) -> None:
     """Historia wypłat - zawsze za całe życie konta, nie za wybrany zakres."""
     coverage = data.coverage_for("wypłaty")
     rows = dedupe(
@@ -114,6 +127,7 @@ def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data
             WALLET_WINDOW_DAYS,
             stop_after_empty=EMPTY_WINDOWS_LIMIT,
             label="Wypłaty",
+            cache=cache,
             on_window_error=window_guard(data, coverage, "Wypłaty"),
         ),
         "orderId",
@@ -156,7 +170,11 @@ def fetch_withdrawals(client: BitgetClient, cfg: Config, prices: PriceBook, data
 
 
 def fetch_transfers(
-    client: BitgetClient, cfg: Config, data: Dataset, coins: Optional[List[str]] = None
+    client: BitgetClient,
+    cfg: Config,
+    data: Dataset,
+    coins: Optional[List[str]] = None,
+    cache=None,
 ) -> None:
     """Transfery wewnętrzne (Funding <-> Spot <-> Futures <-> Earn).
 
@@ -177,6 +195,7 @@ def fetch_transfers(
                 TRANSFER_WINDOW_DAYS,
                 limit=500,
                 label=f"Transfery {coin}",
+                cache=cache,
                 on_window_error=window_guard(data, coverage, f"Transfery {coin}"),
             ),
             "transferId",

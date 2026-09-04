@@ -49,7 +49,9 @@ def _classify(business_type: str) -> str:
     return CAT_OTHER
 
 
-def fetch_futures_bills(client: BitgetClient, cfg: Config, data: Dataset) -> None:
+def fetch_futures_bills(
+    client: BitgetClient, cfg: Config, data: Dataset, cache=None
+) -> None:
     """Księga rachunku futures - awaryjnie, gdy rejestr podatkowy zawiedzie."""
     coverage = data.coverage_for("księga futures")
     seen_ids = set()
@@ -63,6 +65,7 @@ def fetch_futures_bills(client: BitgetClient, cfg: Config, data: Dataset) -> Non
                 cfg.end_ms,
                 BILL_WINDOW_DAYS,
                 label=f"Księga futures {product_type}",
+                cache=cache,
                 on_window_error=window_guard(data, coverage, f"Księga futures {product_type}"),
             ),
             "billId",
@@ -94,7 +97,9 @@ def fetch_futures_bills(client: BitgetClient, cfg: Config, data: Dataset) -> Non
     log.info("Księga futures: %d wpisów.", len(data.futures_ledger))
 
 
-def fetch_closed_positions(client: BitgetClient, cfg: Config, data: Dataset) -> None:
+def fetch_closed_positions(
+    client: BitgetClient, cfg: Config, data: Dataset, cache=None
+) -> None:
     """Historia zamkniętych pozycji - kontrola krzyżowa dla wyniku futures.
 
     Bitget udostępnia ten endpoint tylko dla ostatnich ~3 miesięcy, więc
@@ -112,6 +117,7 @@ def fetch_closed_positions(client: BitgetClient, cfg: Config, data: Dataset) -> 
                 cfg.end_ms,
                 POSITION_WINDOW_DAYS,
                 label=f"Historia pozycji {product_type}",
+                cache=cache,
                 on_window_error=window_guard(
                     data, coverage, f"Historia pozycji {product_type}"
                 ),

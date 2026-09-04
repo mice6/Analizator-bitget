@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from .cache import WindowCache, snap
+from .cache import WindowCache
 from .client import BitgetClient, BitgetError, time_windows
 from .config import Config
 from .futures import _classify as classify_futures
@@ -167,7 +167,7 @@ def _fetch_windows(
     on_cached,
 ):
     """Przechodzi okresy od najnowszego do najstarszego, agregując w locie."""
-    windows = list(time_windows(start_ms, end_ms, TAX_WINDOW_DAYS))
+    windows = list(time_windows(start_ms, end_ms, TAX_WINDOW_DAYS, align_to_grid=True))
     windows.reverse()
     total = len(windows)
     guard = window_guard(data, coverage, label)
@@ -179,7 +179,10 @@ def _fetch_windows(
             f"{time.strftime('%Y-%m-%d', time.gmtime(window_start / 1000))} → "
             f"{time.strftime('%Y-%m-%d', time.gmtime(window_end / 1000))}"
         )
-        key = cache.key(path, window_start, window_end) if cache is not None else None
+        # Najnowszy okres wciąż trwa - jego zawartość zmieni się jutro,
+        # więc nie zapisujemy go do pamięci podręcznej.
+        cacheable = cache is not None and index > 0
+        key = cache.key(path, window_start, window_end) if cacheable else None
         if key is not None:
             cached = cache.get(key)
             if cached is not None:
@@ -276,7 +279,7 @@ def fetch_spot_records(
         return summary
 
     _fetch_windows(
-        client, SPOT_TAX_PATH, "Rejestr spot", start_ms, snap(cfg.end_ms),
+        client, SPOT_TAX_PATH, "Rejestr spot", start_ms, cfg.end_ms,
         data, coverage, cache, consume, aggregator.merge_summary,
     )
 
@@ -337,7 +340,7 @@ def fetch_futures_records(
         return summary
 
     _fetch_windows(
-        client, FUTURES_TAX_PATH, "Rejestr futures", start_ms, snap(cfg.end_ms),
+        client, FUTURES_TAX_PATH, "Rejestr futures", start_ms, cfg.end_ms,
         data, coverage, cache, consume, aggregator.merge_summary,
     )
 

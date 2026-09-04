@@ -734,19 +734,49 @@ class TestPamieciPodrecznej(unittest.TestCase):
         prices = PriceBook(client)
         data = collect(self.cfg, client, prices, None, cache)
         cache.save()
-        tax_calls = [p for p, _ in client.calls if p.startswith("/api/v2/tax/")]
-        return data, cache, tax_calls
+        return data, cache, client
 
-    def test_drugi_przebieg_nie_pyta_o_te_same_okresy(self):
-        _, _, first_calls = self._run()
-        self.assertTrue(first_calls, "pierwszy przebieg musi coś pobrać")
+    @staticmethod
+    def _calls(client, prefix):
+        return [path for path, _ in client.calls if path.startswith(prefix)]
 
-        data, cache, second_calls = self._run()
-        self.assertEqual(second_calls, [], "drugi przebieg pytał ponownie o rejestry")
+    def test_drugi_przebieg_pyta_tylko_o_biezacy_okres(self):
+        _, _, first = self._run()
+        pierwszy_raz = self._calls(first, "/api/v2/tax/")
+        self.assertTrue(pierwszy_raz, "pierwszy przebieg musi coś pobrać")
+
+        data, cache, second = self._run()
+        drugi_raz = self._calls(second, "/api/v2/tax/")
+        # Zamknięte okresy z pamięci; dopytujemy tylko o trwający okres
+        # (po jednym na endpoint), bo jego zawartość jeszcze się zmieni.
+        self.assertLessEqual(len(drugi_raz), 2, drugi_raz)
+        self.assertLess(len(drugi_raz), len(pierwszy_raz))
         self.assertTrue(cache.hits)
-        # Dane muszą być takie same jak przy pobieraniu z sieci.
         self.assertTrue(data.spot_ledger)
         self.assertTrue(data.futures_ledger)
+
+    def test_stare_wplaty_nie_sa_pobierane_ponownie(self):
+        """Wpłata z 2021 roku już się nie zmieni - nie ma po co o nią pytać."""
+        _, _, first = self._run()
+        pierwszy_raz = self._calls(first, "/api/v2/spot/wallet/deposit-records")
+        self.assertGreater(len(pierwszy_raz), 5, "zakres obejmuje wiele okresów")
+
+        _, _, second = self._run()
+        drugi_raz = self._calls(second, "/api/v2/spot/wallet/deposit-records")
+        self.assertLessEqual(len(drugi_raz), 1, drugi_raz)
+
+    def test_granice_okresow_nie_zmieniaja_sie_z_uplywem_czasu(self):
+        """Klucze muszą przeżyć restart nazajutrz, a nie tylko w tej samej godzinie."""
+        from bitget_analyzer.client import time_windows
+
+        teraz = int(NOW.timestamp() * 1000)
+        godzine_pozniej = teraz + 3_600_000
+        start = teraz - 400 * 86_400_000
+
+        dzis = list(time_windows(start, teraz, 30, align_to_grid=True))
+        pozniej = list(time_windows(start, godzine_pozniej, 30, align_to_grid=True))
+        # Wszystkie zamknięte okresy (poza najnowszym) muszą być identyczne.
+        self.assertEqual(dzis[:-1], pozniej[:-1])
 
     def test_pusta_pamiec_nie_jest_falsy(self):
         """Pusty magazyn musi być prawdziwy w warunku - inaczej byłby pomijany."""
