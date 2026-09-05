@@ -118,6 +118,10 @@ class Analysis:
     rewards_total: float = 0.0
     other_total: float = 0.0
 
+    # False, gdy dane pozwalają policzyć wynik całkowity, ale nie jego rozbicie.
+    attribution_available: bool = True
+    attribution_reason: str = ""
+
     transfers_count: int = 0
     transfers_volume: float = 0.0
     uncovered_symbols: List[str] = field(default_factory=list)
@@ -489,6 +493,23 @@ class Analyzer:
         ) and self.data.closed_positions:
             self._futures_from_positions(row_for)
 
+        # Rejestr zwinięty do sum miesięcznych nie niesie informacji o wyniku.
+        # Zamiast liczyć z niego cokolwiek, wyłączamy całe rozbicie.
+        if self.data.spot_reconstruction_skipped:
+            analysis.attribution_available = False
+            analysis.attribution_reason = (
+                "Rejestr podatkowy zwrócił zbyt wiele operacji, by liczyć je "
+                "pojedynczo (na tym koncie idą w setki tysięcy miesięcznie), "
+                "a z sum miesięcznych nie da się oddzielić zysku od zmiany stanu "
+                "posiadania. Po rozbicie użyj trybu szybkiego (90 dni)."
+            )
+            self.data.warn(
+                "ROZBICIE WYNIKU NIEDOSTĘPNE dla tego konta w trybie pełnym. "
+                + analysis.attribution_reason
+                + " Wynik całkowity na górze raportu jest tym nietknięty - "
+                "liczy się z wyceny portfela i historii wpłat."
+            )
+
         # 4a. Wynik handlu spot z księgi - dla miesięcy, których nie pokrywają
         # dokładne transakcje. Boty (grid, martingale) często nie pojawiają się
         # w /spot/trade/fills, a bez tego ich wynik w ogóle by nie wszedł.
@@ -526,6 +547,9 @@ class Analyzer:
             abs(self.to_usd(transfer.coin, transfer.amount, transfer.ts))
             for transfer in self.data.transfers
         )
+
+        if not analysis.attribution_available:
+            months.clear()
 
         self._flag_implausible(months, analysis)
 

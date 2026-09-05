@@ -1089,3 +1089,68 @@ class TestPrzemianowanychMonet(unittest.TestCase):
             self.assertEqual(price, 0.0)
             self.assertEqual(source, "brak")
             self.assertIn("VGX", prices.missing_coins)
+
+
+class TestBramkiRozbicia(unittest.TestCase):
+    """Gdy nie da się odtworzyć transakcji, raport ma milczeć, a nie zgadywać."""
+
+    def _analyse(self, skipped: bool):
+        from bitget_analyzer.model import CAT_TRADE, LedgerEntry
+
+        data = Dataset()
+        data.spot_reconstruction_skipped = skipped
+        data.spot_ledger.append(
+            LedgerEntry(
+                ts=days_ago(40), account="spot", coin="POL", amount=24506.0,
+                category=CAT_TRADE, aggregated=True, entry_id="1",
+            )
+        )
+        data.spot_ledger.append(
+            LedgerEntry(
+                ts=days_ago(40), account="spot", coin="USDT", amount=-2777.0,
+                category=CAT_TRADE, aggregated=True, entry_id="2",
+            )
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            prices.load_symbols()
+            prices.load_current()
+            return data, Analyzer(data, prices).build()
+
+    def test_rozbicie_wylaczone_gdy_brak_odtworzenia(self):
+        data, analysis = self._analyse(skipped=True)
+        self.assertFalse(analysis.attribution_available)
+        self.assertTrue(analysis.attribution_reason)
+        # Żadnych wymyślonych liczb: ani składników, ani tabeli miesięcznej.
+        self.assertEqual(analysis.months, [])
+        self.assertEqual(analysis.spot_realized_total, 0.0)
+        self.assertEqual(analysis.other_total, 0.0)
+        self.assertTrue(any("NIEDOSTĘPNE" in w for w in data.warnings))
+
+    def test_wynik_calkowity_dziala_mimo_braku_rozbicia(self):
+        """Główna liczba nie zależy od rejestrów."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            client = FakeClient(cfg)
+            data, analysis, _ = build_dataset(cfg, client)
+            data.spot_reconstruction_skipped = True
+            zablokowana = Analyzer(data, PriceBook(client)).build()
+
+        self.assertFalse(zablokowana.attribution_available)
+        self.assertAlmostEqual(zablokowana.real_pnl, analysis.real_pnl, places=6)
+        self.assertAlmostEqual(zablokowana.deposits_total, 5800.0, places=6)
+
+    def test_raport_konsolowy_mowi_wprost(self):
+        import io
+        from contextlib import redirect_stdout
+
+        data, analysis = self._analyse(skipped=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                Reporter(cfg, data, analysis).print_console()
+        output = buffer.getvalue()
+        self.assertIn("NIEDOSTĘPNE", output)
+        self.assertIn("REALNY ZYSK", output)

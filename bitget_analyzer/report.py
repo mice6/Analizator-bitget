@@ -22,6 +22,19 @@ def money(value: float, decimals: int = 2) -> str:
     return f"{value:,.{decimals}f}".replace(",", NBSP)
 
 
+def _wrap(text: str, width: int):
+    words, line, out = text.split(), "", []
+    for word in words:
+        if len(line) + len(word) + 1 > width:
+            out.append(line)
+            line = word
+        else:
+            line = f"{line} {word}".strip()
+    if line:
+        out.append(line)
+    return out
+
+
 def plural(count: int, one: str, few: str, many: str) -> str:
     """Polska odmiana rzeczownika po liczebniku (1 operacja / 2 operacje / 5 operacji)."""
     if count == 1:
@@ -96,6 +109,12 @@ class Reporter:
 
         print("\n4. Z CZEGO SIĘ TO SKŁADA")
         print(THIN)
+        if not a.attribution_available:
+            print("   NIEDOSTĘPNE dla tego konta.")
+            for line in _wrap(a.attribution_reason, 72):
+                print(f"   {line}")
+            self._print_coverage()
+            return
         rows = [
             ("Spot - zrealizowany wynik z transakcji", a.spot_realized_total),
             ("Spot - niezrealizowany (trzymane monety)", a.spot_unrealized),
@@ -409,6 +428,8 @@ class Reporter:
             "wartosc_aktywow_wg_konta": a.equity_by_account,
             "realny_wynik_usdt": a.real_pnl,
             "roi": a.roi,
+            "rozbicie_dostepne": a.attribution_available,
+            "rozbicie_powod": a.attribution_reason,
             "skladniki": {
                 "spot_zrealizowany": a.spot_realized_total,
                 "spot_niezrealizowany": a.spot_unrealized,

@@ -207,6 +207,9 @@ class Dataset:
     equity: Optional[EquitySnapshot] = None
     # Zlecenia spot pogrupowane po bizOrderId - do odtwarzania transakcji.
     spot_orders: Dict[str, List[LedgerEntry]] = field(default_factory=dict)
+    # True, gdy operacji było tyle, że zrezygnowaliśmy z odtwarzania transakcji.
+    # Wtedy rozbicia wyniku nie da się policzyć z samych sum miesięcznych.
+    spot_reconstruction_skipped: bool = False
     coverage: Dict[str, SourceCoverage] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 

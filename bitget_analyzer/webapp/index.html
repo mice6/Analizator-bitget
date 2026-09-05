@@ -414,6 +414,18 @@ function renderResult(r, files, dir) {
          r.liczba_wyplat + " operacji &middot; po odjęciu prowizji");
 
   const s = r.skladniki;
+  if (r.rozbicie_dostepne === false) {
+    $("verdict").innerHTML =
+      '<div class="note warn"><strong>Rozbicie wyniku niedostępne dla tego konta.</strong><br>' +
+      escapeHtml(r.rozbicie_powod || "") +
+      "<br><br>Liczba wyżej jest tym nietknięta &ndash; wynika z wyceny portfela " +
+      "i historii wpłat, nie z rejestrów.</div>";
+    $("breakdown").innerHTML = "";
+    $("months").innerHTML = "";
+    $("pairs").innerHTML = "";
+    renderCoverage(r);
+    return;
+  }
   $("verdict").innerHTML =
     '<div class="note info">Liczba wyżej jest twarda: nie da się jej poprawić zyskownym botem, ' +
     "jeśli gdzie indziej zniknęły pieniądze. Rozbicie niżej wyjaśnia, gdzie ten wynik powstał. " +
@@ -465,6 +477,22 @@ function renderResult(r, files, dir) {
       : '<tr><td colspan="6">Brak transakcji spot w zadanym zakresie.</td></tr>') +
     "</tbody>";
 
+  renderCoverage(r);
+
+  const warnings = r.ostrzezenia || [];
+  $("warnings").innerHTML = warnings.length
+    ? '<div class="note warn" style="margin-top:16px"><strong>Ostrzeżenia</strong><ul class="plain">' +
+      warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
+    : "";
+
+  $("files").innerHTML =
+    (files || []).map((name) =>
+      '<a href="/api/plik?nazwa=' + encodeURIComponent(name) + "&t=" + encodeURIComponent(TOKEN) +
+      '" download>' + escapeHtml(name) + "</a>").join("") +
+    (dir ? '<div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">Katalog: <code>' + escapeHtml(dir) + "</code></div>" : "");
+}
+
+function renderCoverage(r) {
   $("coverage").innerHTML =
     "<thead><tr><th>Źródło</th><th>Rekordów</th><th>Od</th><th>Do</th><th>Uwaga</th></tr></thead><tbody>" +
     (r.pokrycie || []).map((c) =>
@@ -479,12 +507,6 @@ function renderResult(r, files, dir) {
     ? '<div class="note warn" style="margin-top:16px"><strong>Ostrzeżenia</strong><ul class="plain">' +
       warnings.map((w) => "<li>" + escapeHtml(w) + "</li>").join("") + "</ul></div>"
     : "";
-
-  $("files").innerHTML =
-    (files || []).map((name) =>
-      '<a href="/api/plik?nazwa=' + encodeURIComponent(name) + "&t=" + encodeURIComponent(TOKEN) +
-      '" download>' + escapeHtml(name) + "</a>").join("") +
-    (dir ? '<div class="hint" style="margin-top:10px;color:var(--muted);font-size:12px">Katalog: <code>' + escapeHtml(dir) + "</code></div>" : "");
 }
 
 function card(extra, key, value, sub, valueClass) {

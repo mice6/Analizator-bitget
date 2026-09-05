@@ -358,11 +358,19 @@ starszej historii i wynik jest niepełny — patrz punkt 7 niżej.
 
 ---
 
-## 8. Gdy API nie oddaje starszej historii
+## 8. Gdy API nie oddaje starszej historii albo kapitał wszedł innym kanałem
 
-Bitget przechowuje historię przez ograniczony czas. Jeśli sekcja z pokryciem danych pokazuje, że
-wpłaty zaczynają się później niż w rzeczywistości, uzupełnij brakujące operacje
-ręcznie (z wyciągu bankowego lub eksportu z panelu Bitget) w pliku CSV:
+Dwa powody, dla których historia wpłat bywa niepełna:
+
+- **Bitget przechowuje ją przez ograniczony czas** — jeśli sekcja z pokryciem
+  danych pokazuje, że wpłaty zaczynają się później niż w rzeczywistości, starsze
+  po prostu przepadły.
+- **Kapitał wszedł kanałem, którego API nie oddaje** — zakup kartą, przelew
+  fiat, starsze zakupy P2P spoza okna retencji. Sygnał: w księdze widać obroty
+  z okresu, w którym nie ma ani jednej wpłaty.
+
+W obu wypadkach uzupełnij brakujące operacje ręcznie (z wyciągu bankowego albo
+z eksportu z panelu Bitget) w pliku CSV:
 
 ```csv
 data;typ;moneta;ilosc;wartosc_usd

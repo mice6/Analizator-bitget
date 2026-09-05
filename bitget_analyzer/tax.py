@@ -297,10 +297,11 @@ def fetch_spot_records(
 
     data.spot_orders = orders
     if trade_records[0] > TRADE_RECONSTRUCTION_LIMIT:
+        data.spot_reconstruction_skipped = True
         data.warn(
-            f"Konto ma bardzo dużo transakcji spot ({trade_records[0]:,} wpisów w "
-            "rejestrze) - typowe przy grid botach. Wynik w rozbiciu na pary liczę "
-            "wtedy tylko z ostatnich 90 dni; sumy miesięczne obejmują cały zakres."
+            f"Konto ma bardzo dużo transakcji spot ({trade_records[0]:,} wpisów "
+            "w rejestrze) - typowe przy grid botach. Nie da się ich odtworzyć "
+            "pojedynczo, a z sum miesięcznych nie wyliczy się wyniku."
             .replace(",", " ")
         )
 
