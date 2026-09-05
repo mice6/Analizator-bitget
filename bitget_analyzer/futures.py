@@ -35,6 +35,12 @@ POSITION_WINDOW_DAYS = 30
 
 
 def _classify(business_type: str) -> str:
+    """Kategoria wpisu futures.
+
+    Otwarcie pozycji przesuwa depozyt zabezpieczający, a nie tworzy wyniku -
+    liczenie go razem z zamknięciami zawyżałoby obroty o wielokrotność kapitału.
+    Wynik powstaje dopiero przy zamknięciu, likwidacji lub rozliczeniu.
+    """
     bt = (business_type or "").lower()
     if "trans_" in bt or bt in ("transfer_in", "transfer_out"):
         return CAT_TRANSFER
@@ -44,7 +50,9 @@ def _classify(business_type: str) -> str:
         return CAT_LIQUIDATION
     if "bonus" in bt or "rebate" in bt or "reward" in bt or "airdrop" in bt:
         return CAT_REWARD
-    if any(token in bt for token in ("open", "close", "delivery", "settle", "pos")):
+    if bt.startswith("open") or "open_" in bt:
+        return CAT_TRANSFER
+    if any(token in bt for token in ("close", "delivery", "settle")):
         return CAT_TRADE
     return CAT_OTHER
 

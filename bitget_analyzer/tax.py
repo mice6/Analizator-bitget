@@ -40,8 +40,9 @@ SPOT_TAX_PATH = "/api/v2/tax/spot-record"
 FUTURES_TAX_PATH = "/api/v2/tax/future-record"
 P2P_TAX_PATH = "/api/v2/tax/p2p-record"
 
-# Endpoint P2P przyjmuje szersze okna niż pozostałe rejestry.
-P2P_WINDOW_DAYS = 180
+# Dokumentacja mówi o 366 dniach, ale API odrzuca już 180 - trzymamy się
+# tego samego okna, co pozostałe rejestry.
+P2P_WINDOW_DAYS = 30
 
 TAX_WINDOW_DAYS = 30
 TAX_PAGE_LIMIT = 500

@@ -313,12 +313,17 @@ Zmiany wyceny monet, które nadal trzymasz, nie wchodzą do tej pozycji —
 lądują w „różnicy do wyniku rzeczywistego".
 
 W trybie **pełnym** rejestr jest zwijany do sum miesięcznych (setki tysięcy
-operacji nie zmieszczą się w pamięci), więc kosztu nabycia nie da się prowadzić
-operacja po operacji. Wynik liczony jest wtedy z miesięcznych sum: każda moneta
-wyceniana jednym kursem na koniec miesiąca. Zamknięty cykl bota zostawia czysty
-zysk w walucie kwotowanej, ale miesiąc z dużymi zakupami wyjdzie na minus —
-wartość kupionych monet widać wtedy w wycenie portfela. Raport mówi wprost,
-która metoda została użyta.
+operacji nie zmieszczą się w pamięci) i wtedy **rozbicie wyniku spot nie jest
+liczone w ogóle**. Miesięczna suma netto miesza obrót ze zmianą stanu
+posiadania: konto z botem potrafi mieć w jednym miesiącu ćwierć miliona
+operacji, ujemne saldo USDT i dodatnie kilkudziesięciu tysięcy innej monety.
+Pomnożenie tego przez jeden kurs daje liczby oderwane od wielkości konta, więc
+zamiast zmyślać wynik raport podaje same prowizje i mówi wprost, czego brakuje.
+Po rozbicie per para użyj trybu szybkiego.
+
+Raport pilnuje tego również sam: składnik przekraczający pięciokrotność sumy
+wpłat i wyceny konta jest oznaczany jako niewiarygodny. Wynik całkowity jest od
+tych składników niezależny — liczy się z wyceny portfela i historii wpłat.
 
 ### Sekcja 6 — wynik wg pary
 Zrealizowany P&L spot liczony metodą **średniej ważonej ceny nabycia**: zakupy

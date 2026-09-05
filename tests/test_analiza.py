@@ -561,7 +561,7 @@ class TestWynikuBotowZKsiegi(unittest.TestCase):
 
 
 class TestWynikuZSumMiesiecznych(unittest.TestCase):
-    """Tryb pełny zwija rejestr do sum miesięcznych - inna metoda liczenia."""
+    """Z sum miesięcznych nie da się policzyć wyniku - i nie wolno go zmyślać."""
 
     def _analyse(self, legs):
         from bitget_analyzer.model import CAT_TRADE, LedgerEntry
@@ -582,21 +582,59 @@ class TestWynikuZSumMiesiecznych(unittest.TestCase):
             prices.load_current()
             return data, Analyzer(data, prices).build()
 
-    def test_zamkniety_cykl_bota_daje_zysk(self):
-        # Bot obrócił BTC i wrócił do stanu wyjściowego, zostawiając +40 USDT.
-        data, analysis = self._analyse([("USDT", 40.0, -2.0), ("BTC", 0.0, 0.0)])
-        self.assertAlmostEqual(analysis.spot_realized_total, 38.0, places=6)
-        self.assertTrue(any("sum rejestru" in w for w in data.warnings))
+    def test_nie_wymysla_wyniku_z_sum(self):
+        # Ćwierć miliona operacji zwiniętych do dwóch wierszy: sama suma netto
+        # nie mówi, ile z tego było zyskiem, a ile zmianą stanu posiadania.
+        data, analysis = self._analyse([("USDT", -2777.0, 0.0), ("POL", 24506.0, 0.0)])
+        self.assertAlmostEqual(analysis.spot_realized_total, 0.0, places=6)
+        self.assertTrue(
+            any("nie jest dostępne dla tego konta" in w for w in data.warnings),
+            data.warnings,
+        )
 
-    def test_zakup_bez_sprzedazy_obniza_wynik_miesiaca(self):
-        # -60 000 USDT i +1 BTC: przy kursie bieżącym 60 000 wychodzi zero.
-        _, analysis = self._analyse([("USDT", -60000.0, 0.0), ("BTC", 1.0, 0.0)])
-        self.assertAlmostEqual(analysis.spot_realized_total, 0.0, places=2)
+    def test_prowizje_sa_raportowane(self):
+        """Prowizje są jednoznaczne, więc te podajemy."""
+        _, analysis = self._analyse([("USDT", 0.0, -12.5)])
+        self.assertAlmostEqual(analysis.spot_realized_total, -12.5, places=6)
 
-    def test_sumy_nie_ida_przez_silnik_kosztu_nabycia(self):
-        """Na sumach miesięcznych koszt nabycia nie ma sensu - nie wolno go użyć."""
-        data, _ = self._analyse([("USDT", 40.0, 0.0), ("BTC", 0.0, 0.0)])
-        self.assertFalse(any("z księgi rachunku" in w for w in data.warnings))
+
+class TestBezpiecznikaSkali(unittest.TestCase):
+    """Składnik większy niż skala konta to błąd, a nie wynik."""
+
+    def test_ostrzezenie_przy_absurdalnej_kwocie(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            data = Dataset()
+            data.closed_positions.append(
+                {"_ts": days_ago(20), "marginCoin": "USDT", "netProfit": "-99000"}
+            )
+            Analyzer(data, prices).build()
+
+        self.assertTrue(
+            any("Niewiarygodne pozycje" in w for w in data.warnings), data.warnings
+        )
+
+    def test_brak_ostrzezenia_przy_normalnych_kwotach(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            data, _, _ = build_dataset(cfg, FakeClient(cfg))
+        self.assertFalse([w for w in data.warnings if "Niewiarygodne" in w])
+
+
+class TestKlasyfikacjiFutures(unittest.TestCase):
+    """Otwarcie pozycji przesuwa depozyt, nie tworzy wyniku."""
+
+    def test_otwarcie_nie_jest_wynikiem(self):
+        from bitget_analyzer.futures import _classify
+
+        self.assertEqual(_classify("open_long"), "transfer")
+        self.assertEqual(_classify("open_short"), "transfer")
+        self.assertEqual(_classify("close_long"), "trade")
+        self.assertEqual(_classify("close_short"), "trade")
+        self.assertEqual(_classify("burst_long_loss_query"), "liquidation")
+        self.assertEqual(_classify("contract_settle_fee"), "funding")
+        self.assertEqual(_classify("trans_from_exchange"), "transfer")
 
 
 class TestSprzedazBezHistorii(unittest.TestCase):

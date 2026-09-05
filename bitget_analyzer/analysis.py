@@ -308,33 +308,68 @@ class Analyzer:
         return dict(realized)
 
     def _spot_from_monthly_sums(self, entries: List[LedgerEntry]) -> Dict[str, float]:
-        """Wynik spot z miesięcznych sum rejestru podatkowego.
+        """Na zwiniętych sumach miesięcznych wyniku handlu NIE DA SIĘ policzyć.
 
-        Każdą monetę wyceniamy JEDNYM kursem na koniec miesiąca, a nie kursem
-        z chwili każdej operacji. To istotne: wycena obu nóg kursem z momentu
-        wymiany zawsze daje zero, bo wymiana odbywa się po kursie rynkowym.
-        Przy wspólnym kursie zamknięty cykl bota (moneta wraca do stanu
-        wyjściowego) zostawia czysty zysk w walucie kwotowanej.
+        Miesięczna suma netto miesza obrót ze zmianą stanu posiadania. Konto
+        z botem potrafi mieć w jednym miesiącu ćwierć miliona operacji, ujemne
+        saldo USDT i dodatnie kilkudziesięciu tysięcy innej monety - pomnożenie
+        tego przez jeden kurs daje liczby oderwane od wielkości konta.
 
-        Wynik zawiera też zmianę stanu posiadania monet w danym miesiącu -
-        zakup, którego bot jeszcze nie zamknął, obniża wynik miesiąca, a jego
-        dzisiejsza wartość i tak jest w wycenie portfela.
+        Zamiast zmyślać wynik, raportujemy same prowizje (te są jednoznaczne)
+        i mówimy wprost, czego brakuje.
         """
-        realized: Dict[str, float] = defaultdict(float)
+        fees: Dict[str, float] = defaultdict(float)
+        operations = 0
         for entry in entries:
-            reference_ts = _month_end_ts(entry.month)
-            realized[entry.month] += self.to_usd(entry.coin, entry.amount, reference_ts)
+            operations += 1
             if entry.fee:
-                realized[entry.month] += self.to_usd(entry.coin, entry.fee, reference_ts)
+                fees[entry.month] += self.to_usd(
+                    entry.coin, entry.fee, _month_end_ts(entry.month)
+                )
 
         self.data.warn(
-            f"Wynik spot za {len(realized)} miesięcy policzony z miesięcznych sum "
-            "rejestru podatkowego (konto ma zbyt wiele operacji, by liczyć je "
-            "pojedynczo). Obejmuje też zmianę stanu monet w danym miesiącu, "
-            "więc miesiąc z dużymi zakupami wyjdzie na minus, a ich wartość "
-            "widać w wycenie portfela."
+            "Rozbicie wyniku spot nie jest dostępne dla tego konta: rejestr "
+            "podatkowy zwrócił zbyt wiele operacji, by liczyć je pojedynczo, "
+            "a z sum miesięcznych nie da się oddzielić zysku od zmiany stanu "
+            "posiadania. W rozbiciu są tylko prowizje. Wynik całkowity na górze "
+            "raportu jest tym nietknięty - liczy się z wyceny portfela i historii "
+            "wpłat. Po szczegóły per para użyj trybu szybkiego (90 dni)."
         )
-        return dict(realized)
+        log.info(
+            "Spot: pominięto wynik z sum miesięcznych (%d zagregowanych wierszy).",
+            operations,
+        )
+        return dict(fees)
+
+    def _flag_implausible(self, months: Dict[str, MonthRow], analysis: "Analysis") -> None:
+        """Ostrzega, gdy składnik rozbicia przekracza skalę konta.
+
+        Wynik nie może być wielokrotnością wszystkiego, co przez konto
+        przepłynęło. Jeśli jest - to błąd danych albo metody, i lepiej
+        powiedzieć to wprost, niż podać liczbę, w którą nie wolno wierzyć.
+        """
+        scale = max(analysis.deposits_total + analysis.equity_now, 1.0)
+        limit = scale * 5
+        podejrzane = []
+        for row in months.values():
+            for label, value in (
+                ("wynik futures", row.futures_pnl),
+                ("funding", row.futures_funding),
+                ("prowizje futures", row.futures_fees),
+                ("wynik spot", row.spot_realized),
+                ("pozostałe", row.other),
+            ):
+                if abs(value) > limit:
+                    podejrzane.append(f"{row.month} {label}: {value:,.0f}".replace(",", " "))
+
+        if podejrzane:
+            self.data.warn(
+                "Niewiarygodne pozycje w rozbiciu (przekraczają pięciokrotność "
+                "kapitału i wyceny konta): "
+                + "; ".join(podejrzane[:6])
+                + ". Nie ufaj tym liczbom - wynik całkowity na górze raportu "
+                "jest od nich niezależny."
+            )
 
     def _futures_from_positions(self, row_for) -> None:
         """Wynik futures odtworzony z historii zamkniętych pozycji.
@@ -491,6 +526,8 @@ class Analyzer:
             abs(self.to_usd(transfer.coin, transfer.amount, transfer.ts))
             for transfer in self.data.transfers
         )
+
+        self._flag_implausible(months, analysis)
 
         analysis.months = [months[key] for key in sorted(months)]
         analysis.spot_realized_total = sum(m.spot_realized for m in analysis.months)
