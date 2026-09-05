@@ -24,6 +24,17 @@ STABLECOINS = {
 
 DAY_MS = 24 * 60 * 60 * 1000
 
+# Monety, które zmieniły nazwę - stara nazwa nie ma już notowań, więc bez tego
+# operacje sprzed zmiany wyceniałyby się na zero.
+COIN_ALIASES = {
+    "MATIC": "POL",
+    "LUNA2": "LUNA",
+    "BTCB": "BTC",
+    "WETH": "ETH",
+    "WBTC": "BTC",
+    "BEP20USDT": "USDT",
+}
+
 
 class PriceBook:
     """Cache kursów: bieżących (tickery) i historycznych (świece dzienne)."""
@@ -111,6 +122,9 @@ class PriceBook:
             return None
         if coin in STABLECOINS:
             return 1.0
+        alias = COIN_ALIASES.get(coin)
+        if alias:
+            return self.current(alias)
         direct = self._current.get(f"{coin}USDT")
         if direct:
             return direct
@@ -145,6 +159,10 @@ class PriceBook:
             return (cached, "candle") if cached > 0 else (0.0, "brak")
 
         price = self._fetch_daily_close(coin, ts_ms)
+        if price is None:
+            alias = COIN_ALIASES.get(coin)
+            if alias:
+                price = self._fetch_daily_close(alias, ts_ms)
         if price is not None:
             self._daily[cache_key] = price
             return price, "candle"
@@ -162,7 +180,13 @@ class PriceBook:
             return fallback, "current"
         if coin not in self._missing:
             self._missing.add(coin)
-            log.warning("Brak jakiegokolwiek kursu dla %s - wyceniam na 0.", coin)
+            log.warning(
+                "Brak jakiegokolwiek kursu dla %s - wyceniam na 0. "
+                "Jeśli trzymasz tę monetę w istotnej ilości, jej wartość "
+                "nie wejdzie do rozbicia (w wycenie portfela jest, bo tam "
+                "kwoty podaje sam Bitget).",
+                coin,
+            )
         return 0.0, "brak"
 
     def _fetch_daily_close(self, coin: str, ts_ms: int) -> Optional[float]:

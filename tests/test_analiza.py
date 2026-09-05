@@ -1026,3 +1026,28 @@ class TestZgodnosciPamieciPodrecznej(unittest.TestCase):
             path.write_text("{to nie jest json", encoding="utf-8")
             cache = WindowCache(path)
             self.assertEqual(len(cache), 0)
+
+
+class TestPrzemianowanychMonet(unittest.TestCase):
+    """MATIC nie ma już notowań pod starą nazwą - bez aliasu wycena to zero."""
+
+    def test_alias_biezacego_kursu(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            client = FakeClient(cfg)
+            prices = PriceBook(client)
+            prices._current["POLUSDT"] = 0.42
+            prices._current["BTCUSDT"] = 60000.0
+            self.assertAlmostEqual(prices.current("MATIC"), 0.42, places=6)
+            self.assertAlmostEqual(prices.current("WBTC"), 60000.0, places=6)
+            # Moneta bez aliasu i bez notowań nadal zwraca brak ceny.
+            self.assertIsNone(prices.current("VGX"))
+
+    def test_nieznana_moneta_nadal_ostrzega(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            prices = PriceBook(FakeClient(cfg))
+            price, source = prices.at("VGX", days_ago(40))
+            self.assertEqual(price, 0.0)
+            self.assertEqual(source, "brak")
+            self.assertIn("VGX", prices.missing_coins)
