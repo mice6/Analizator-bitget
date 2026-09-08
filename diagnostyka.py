@@ -40,12 +40,63 @@ def month_range(month: str):
     return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
+def _policz(client: BitgetClient, path: str, params: dict, args) -> int:
+    """Sprawdza, czy stronicowanie nie zwraca tych samych rekordów wielokrotnie.
+
+    Używa dokładnie tej samej funkcji, co produkcyjne pobieranie - jeśli liczba
+    wierszy przewyższa liczbę unikalnych identyfikatorów, mamy pętlę.
+    """
+    from collections import Counter
+
+    base = dict(params)
+    limit = base.pop("limit", 500)
+
+    widziane = Counter()
+    wiersze = 0
+    strony = 0
+    kursory = []
+
+    for row in client.paginate(path, base, limit=limit, max_pages=args.strony):
+        wiersze += 1
+        widziane[str(row.get("id") or row.get("billId") or row.get("tradeId"))] += 1
+        if wiersze % limit == 1:
+            strony += 1
+            kursory.append(str(row.get("id", "?")))
+
+    unikalne = len(widziane)
+    print(f"\n{path}   {args.miesiac}" + (f"   moneta={args.coin}" if args.coin else ""))
+    print(f"  stron pobranych:        {strony}")
+    print(f"  wierszy zwróconych:     {wiersze}")
+    print(f"  unikalnych rekordów:    {unikalne}")
+    if unikalne:
+        print(f"  współczynnik duplikacji: {wiersze / unikalne:.2f}x")
+
+    powtorki = [(rid, n) for rid, n in widziane.most_common(3) if n > 1]
+    if powtorki:
+        print("\n  BŁĄD: te same rekordy wracają wielokrotnie:")
+        for rid, n in powtorki:
+            print(f"    {rid}  ->  {n} razy")
+    else:
+        print("\n  OK: każdy rekord wystąpił dokładnie raz.")
+
+    print("\n  pierwszy id na kolejnych stronach (kursor powinien maleć):")
+    for index, cursor in enumerate(kursory[:10], 1):
+        print(f"    strona {index}: {cursor}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Surowe rekordy z API Bitget.")
     parser.add_argument("miesiac", help="Miesiąc w formacie RRRR-MM, np. 2024-11")
     parser.add_argument("--endpoint", choices=sorted(ENDPOINTS), default="spot")
     parser.add_argument("--limit", type=int, default=20, help="Ile rekordów pokazać.")
     parser.add_argument("--coin", default=None, help="Filtr po monecie.")
+    parser.add_argument(
+        "--policz",
+        action="store_true",
+        help="Przepuść okres przez produkcyjne stronicowanie i policz duplikaty.",
+    )
+    parser.add_argument("--strony", type=int, default=15, help="Limit stron przy --policz.")
     args = parser.parse_args(argv)
 
     try:
@@ -63,6 +114,9 @@ def main(argv=None) -> int:
     params = {"startTime": start_ms, "endTime": end_ms, "limit": max(args.limit, 20)}
     if args.coin:
         params["coin"] = args.coin.upper()
+
+    if args.policz:
+        return _policz(client, path, params, args)
 
     rows = client.request("GET", path, params) or []
     if isinstance(rows, dict):
