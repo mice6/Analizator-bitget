@@ -106,6 +106,9 @@ class LedgerEntry:
     # True dla sum miesięcznych z rejestru podatkowego (setki tysięcy operacji
     # zwiniętych do jednego wiersza) - liczy się je inną metodą.
     aggregated: bool = False
+    # Wartość w USDT, wyliczana w analizie (kurs z chwili operacji albo,
+    # dla sum miesięcznych, z końca miesiąca).
+    usd_value: float = 0.0
 
     @property
     def month(self) -> str:

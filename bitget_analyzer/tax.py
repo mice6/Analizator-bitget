@@ -8,9 +8,11 @@ ląduje w pamięci podręcznej, więc kolejne uruchomienia nie pobierają go pon
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .cache import WindowCache
@@ -51,6 +53,12 @@ TAX_PAGE_LIMIT = 500
 # transakcji - przy grid botach byłyby ich miliony, a wynik per para i tak
 # policzymy z dokładnych danych z ostatnich 90 dni.
 TRADE_RECONSTRUCTION_LIMIT = 20_000
+
+# Powyżej tylu rekordów w jednym okresie zrzucamy surową odpowiedź API na dysk.
+# Liczby rzędu setek tysięcy operacji miesięcznie są nietypowe i trzeba dać
+# możliwość sprawdzenia ich ręcznie, zamiast kazać wierzyć skryptowi.
+DEBUG_DUMP_LIMIT = 5_000
+DEBUG_DUMP_ROWS = 2_000
 
 QUOTE_COINS = set(STABLECOINS) | {"BTC", "ETH", "BGB", "EUR", "BRL", "TRY"}
 
@@ -160,6 +168,35 @@ class LedgerAggregator:
             )
 
 
+def _dump_raw(out_dir, label: str, period: str, rows: List[dict]) -> Optional[str]:
+    """Zapisuje surową odpowiedź API do weryfikacji ręcznej."""
+    if out_dir is None:
+        return None
+    try:
+        target = Path(out_dir) / "debug"
+        target.mkdir(parents=True, exist_ok=True)
+        name = f"{label.replace(' ', '_').lower()}_{period.replace(' ', '')}.json"
+        path = target / name
+        path.write_text(
+            json.dumps(
+                {
+                    "endpoint": label,
+                    "okres": period,
+                    "rekordow_lacznie": len(rows),
+                    "zapisano_pierwszych": min(len(rows), DEBUG_DUMP_ROWS),
+                    "rekordy": rows[:DEBUG_DUMP_ROWS],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return str(path)
+    except OSError as exc:  # pragma: no cover
+        log.debug("Nie zapisano zrzutu surowych danych: %s", exc)
+        return None
+
+
 def _fetch_windows(
     client: BitgetClient,
     path: str,
@@ -171,6 +208,7 @@ def _fetch_windows(
     cache: Optional[WindowCache],
     on_rows,
     on_cached,
+    out_dir=None,
 ):
     """Przechodzi okresy od najnowszego do najstarszego, agregując w locie."""
     windows = list(time_windows(start_ms, end_ms, TAX_WINDOW_DAYS, align_to_grid=True))
@@ -221,6 +259,17 @@ def _fetch_windows(
             cache.save()
 
         log.info("%s: okres %d/%d (%s) - %d rekordów", label, index + 1, total, period, len(rows))
+
+        if len(rows) > DEBUG_DUMP_LIMIT:
+            dump = _dump_raw(out_dir, label, period, rows)
+            data.warn(
+                f"{label}, okres {period}: {len(rows)} rekordów z API - nietypowo "
+                "dużo. "
+                + (f"Surowe dane do weryfikacji: {dump}. " if dump else "")
+                + "Liczba w kolumnie 'typ_operacji' to suma za CAŁY MIESIĄC, "
+                "nie za jeden dzień."
+            )
+
         _log_estimate(label, started, fetched_windows, total - index - 1)
 
 
@@ -286,7 +335,7 @@ def fetch_spot_records(
 
     _fetch_windows(
         client, SPOT_TAX_PATH, "Rejestr spot", start_ms, cfg.end_ms,
-        data, coverage, cache, consume, aggregator.merge_summary,
+        data, coverage, cache, consume, aggregator.merge_summary, cfg.out_dir,
     )
 
     data.spot_ledger.extend(aggregator.entries())
@@ -348,7 +397,7 @@ def fetch_futures_records(
 
     _fetch_windows(
         client, FUTURES_TAX_PATH, "Rejestr futures", start_ms, cfg.end_ms,
-        data, coverage, cache, consume, aggregator.merge_summary,
+        data, coverage, cache, consume, aggregator.merge_summary, cfg.out_dir,
     )
 
     data.futures_ledger.extend(aggregator.entries())

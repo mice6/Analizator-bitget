@@ -397,3 +397,43 @@ class TestTrybuHistorii(unittest.TestCase):
         self.assertTrue(data.spot_ledger)
         self.assertTrue(data.futures_ledger)
         self.assertTrue(any(e.category == "earn" for e in data.spot_ledger))
+
+
+class TestPelnegoSalda(unittest.TestCase):
+    """Rozbicie sald musi sumować się do wyceny portfela, bez luk."""
+
+    def test_konta_bez_rozbicia_sa_dopisywane(self):
+        import sys
+        from pathlib import Path as P
+
+        sys.path.insert(0, str(P(__file__).resolve().parent))
+        from test_analiza import FakeClient, make_config
+
+        from bitget_analyzer.model import Dataset
+        from bitget_analyzer.prices import PriceBook
+        from bitget_analyzer.valuation import fetch_equity
+
+        class ZBotami(FakeClient):
+            def request(self, method, path, params=None, auth=True):
+                if path == "/api/v2/account/all-account-balance":
+                    return [
+                        {"accountType": "spot", "usdtBalance": "3000"},
+                        {"accountType": "bots", "usdtBalance": "651.34"},
+                    ]
+                return super().request(method, path, params, auth)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            client = ZBotami(cfg)
+            prices = PriceBook(client)
+            prices.load_current()
+            data = Dataset()
+            snapshot = fetch_equity(client, cfg, prices, data)
+
+        suma_rozbicia = sum(p["wartosc_usdt"] for p in snapshot.positions)
+        self.assertAlmostEqual(suma_rozbicia, snapshot.total, places=2,
+                               msg="rozbicie musi sumować się do wyceny")
+        self.assertTrue(
+            any(p["konto"] == "bots" for p in snapshot.positions),
+            "konto botów musi trafić do rozbicia",
+        )

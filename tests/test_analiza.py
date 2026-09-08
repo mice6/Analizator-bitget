@@ -1154,3 +1154,51 @@ class TestBramkiRozbicia(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn("NIEDOSTĘPNE", output)
         self.assertIn("REALNY ZYSK", output)
+
+
+class TestDiagnostykiAgregacji(unittest.TestCase):
+    """Liczba operacji ma być prawdziwym licznikiem, a okres - miesiącem."""
+
+    def test_licznik_liczy_rekordy(self):
+        from bitget_analyzer.tax import LedgerAggregator
+
+        aggregator = LedgerAggregator("spot")
+        for index in range(1234):
+            aggregator.add(days_ago(40) + index, "USDT", "trade", 1.0, 0.0)
+        entry = list(aggregator.entries())[0]
+        self.assertIn("1234 operacji", entry.business_type)
+        self.assertEqual(aggregator.records, 1234)
+
+    def test_kubelek_obejmuje_caly_miesiac(self):
+        """Rekordy z różnych dni miesiąca trafiają do jednego kubełka."""
+        from bitget_analyzer.tax import LedgerAggregator
+
+        aggregator = LedgerAggregator("spot")
+        for dni in (35, 40, 50):
+            aggregator.add(days_ago(dni), "USDT", "trade", 1.0, 0.0)
+        # Jeden miesiąc kalendarzowy => jeden wiersz (chyba że daty go przekraczają).
+        miesiace = {key[0] for key in aggregator.buckets}
+        self.assertEqual(len(aggregator.buckets), len(miesiace))
+
+    def test_csv_pokazuje_miesiac_dla_sum(self):
+        from bitget_analyzer.report import _period
+        from bitget_analyzer.model import LedgerEntry
+
+        zagregowany = LedgerEntry(ts=days_ago(40), account="spot", coin="USDT",
+                                  amount=1.0, aggregated=True)
+        pojedynczy = LedgerEntry(ts=days_ago(40), account="spot", coin="USDT",
+                                 amount=1.0)
+        self.assertEqual(len(_period(zagregowany)), 7, "ma być RRRR-MM")
+        self.assertIn(":", _period(pojedynczy), "pojedyncza operacja ma pełną datę")
+
+    def test_zrzut_surowych_danych(self):
+        from bitget_analyzer.tax import _dump_raw
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [{"id": str(i), "amount": "1"} for i in range(10)]
+            path = _dump_raw(Path(tmp), "Rejestr spot", "2024-11", rows)
+            self.assertTrue(path and Path(path).is_file())
+            import json as _json
+            zapisane = _json.loads(Path(path).read_text(encoding="utf-8"))
+            self.assertEqual(zapisane["rekordow_lacznie"], 10)
+            self.assertEqual(len(zapisane["rekordy"]), 10)

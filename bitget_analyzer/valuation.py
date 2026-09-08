@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import defaultdict
 from typing import Dict, List
 
 from .client import BitgetClient, BitgetError, extract_list
@@ -114,6 +115,47 @@ def fetch_equity(
             )
     except BitgetError as exc:
         log.info("Aktywa Earn niedostępne: %s", exc.msg)
+
+    # Konta, których endpointy szczegółowe nie pokrywają (boty, margin),
+    # dopisujemy jednym wierszem - inaczej rozbicie nie zsumuje się do całości
+    # i wygląda, jakby wycena była zawyżona.
+    detail_by_account: Dict[str, float] = defaultdict(float)
+    for position in snapshot.positions:
+        detail_by_account[str(position["konto"]).split(":")[0]] += float(
+            position["wartosc_usdt"]
+        )
+
+    for account_type, total in snapshot.by_account.items():
+        covered = detail_by_account.get(account_type, 0.0)
+        if abs(total - covered) < 0.01:
+            continue
+        if covered == 0.0:
+            snapshot.positions.append(
+                {
+                    "konto": account_type,
+                    "moneta": "(zbiorczo)",
+                    "ilosc": 0.0,
+                    "kurs_usdt": 0.0,
+                    "wartosc_usdt": total,
+                }
+            )
+            continue
+        # Konto pokryte częściowo: np. monety bez notowań albo środki
+        # zablokowane w zleceniach. Dopisujemy różnicę, żeby suma się zgadzała.
+        snapshot.positions.append(
+            {
+                "konto": account_type,
+                "moneta": "(nieujęte w rozbiciu)",
+                "ilosc": 0.0,
+                "kurs_usdt": 0.0,
+                "wartosc_usdt": total - covered,
+            }
+        )
+        data.warn(
+            f"Konto '{account_type}': rozbicie na monety daje {covered:.2f} USDT, "
+            f"a Bitget podaje {total:.2f}. Różnicę {total - covered:.2f} dopisano "
+            "osobnym wierszem (zwykle monety bez notowań albo środki w zleceniach)."
+        )
 
     # Fallback: jeśli zbiorcze saldo nie zadziałało, sumujemy pozycje.
     if not snapshot.by_account and snapshot.positions:

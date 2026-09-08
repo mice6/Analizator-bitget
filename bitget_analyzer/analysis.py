@@ -562,6 +562,12 @@ class Analyzer:
         analysis.rewards_total = sum(m.rewards for m in analysis.months)
         analysis.other_total = sum(m.other for m in analysis.months)
 
+        # Wycena wpisów księgi w USDT - do rankingu i do CSV. Surowe ilości
+        # tokenów nie pozwalają porównać, która moneta ile kosztowała.
+        for entry in self.data.spot_ledger + self.data.futures_ledger:
+            reference_ts = _month_end_ts(entry.month) if entry.aggregated else entry.ts
+            entry.usd_value = self.to_usd(entry.coin, entry.amount, reference_ts)
+
         # 7. Twardy wynik: ile realnie zostało w portfelu vs. ile włożono.
         if self.data.equity:
             analysis.equity_now = self.data.equity.total

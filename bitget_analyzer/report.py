@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 from .analysis import Analysis
 from .config import Config
-from .model import Dataset, to_dt
+from .model import CAT_OTHER, CAT_TRADE, Dataset, to_dt
 
 NBSP = "\u00a0"  # spacja nierozdzielająca - separator tysięcy
 LINE = "=" * 78
@@ -50,6 +51,19 @@ def _pct(value: Optional[float]) -> str:
 
 def _stamp(ts: Optional[int]) -> str:
     return to_dt(ts).strftime("%Y-%m-%d") if ts else "-"
+
+
+def _period(entry) -> str:
+    """Wpis zagregowany dotyczy całego miesiąca - data dzienna wprowadzałaby w błąd."""
+    if entry.aggregated:
+        return to_dt(entry.ts).strftime("%Y-%m")
+    return to_dt(entry.ts).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _operations(business_type: str) -> int:
+    """Wyciąga liczbę operacji z opisu typu 'trade (255544 operacji)'."""
+    match = re.search(r"\((\d+) operacji\)", business_type or "")
+    return int(match.group(1)) if match else 1
 
 
 class Reporter:
@@ -353,11 +367,11 @@ class Reporter:
         written.append(
             self._write(
                 out_dir / "ksiega_futures.csv",
-                ["data", "produkt", "symbol", "typ_operacji", "kategoria", "moneta", "kwota", "prowizja"],
+                ["okres", "produkt", "symbol", "typ_operacji", "kategoria", "moneta", "kwota", "kwota_usdt", "prowizja"],
                 [
                     [
-                        to_dt(e.ts).strftime("%Y-%m-%d %H:%M:%S"), e.product_type, e.symbol,
-                        e.business_type, e.category, e.coin, e.amount, e.fee,
+                        _period(e), e.product_type, e.symbol,
+                        e.business_type, e.category, e.coin, e.amount, e.usd_value, e.fee,
                     ]
                     for e in sorted(self.data.futures_ledger, key=lambda e: e.ts)
                 ],
@@ -367,14 +381,22 @@ class Reporter:
         written.append(
             self._write(
                 out_dir / "ksiega_spot.csv",
-                ["data", "typ_operacji", "kategoria", "moneta", "kwota", "prowizja"],
+                ["okres", "typ_operacji", "kategoria", "moneta", "kwota", "kwota_usdt", "prowizja"],
                 [
                     [
-                        to_dt(e.ts).strftime("%Y-%m-%d %H:%M:%S"), e.business_type,
-                        e.category, e.coin, e.amount, e.fee,
+                        _period(e), e.business_type, e.category, e.coin,
+                        e.amount, e.usd_value, e.fee,
                     ]
                     for e in sorted(self.data.spot_ledger, key=lambda e: e.ts)
                 ],
+            )
+        )
+
+        written.append(
+            self._write(
+                out_dir / "spot_ranking_strat.csv",
+                ["moneta", "saldo_netto_usdt", "prowizje_usdt", "operacji", "wpisow"],
+                self._coin_ranking(),
             )
         )
 
@@ -391,6 +413,31 @@ class Reporter:
         )
 
         return [path for path in written if path]
+
+    def _coin_ranking(self) -> List[Sequence]:
+        """Które monety zjadły najwięcej - saldo netto w USDT, najgorsze na górze."""
+        netto: dict = {}
+        for entry in self.data.spot_ledger:
+            if entry.category not in (CAT_TRADE, CAT_OTHER):
+                continue
+            bucket = netto.setdefault(entry.coin, [0.0, 0.0, 0, 0])
+            bucket[0] += entry.usd_value
+            bucket[1] += self._fee_usd(entry)
+            bucket[2] += _operations(entry.business_type)
+            bucket[3] += 1
+        return [
+            [coin, values[0], values[1], values[2], values[3]]
+            for coin, values in sorted(netto.items(), key=lambda item: item[1][0])
+        ]
+
+    @staticmethod
+    def _fee_usd(entry) -> float:
+        """Prowizja w USDT, jeśli analiza zdążyła ją wycenić."""
+        if not entry.fee:
+            return 0.0
+        if entry.amount:
+            return entry.fee * (entry.usd_value / entry.amount)
+        return 0.0
 
     def _write(self, path: Path, header: Sequence[str], rows: Iterable[Sequence]) -> Path:
         with path.open("w", encoding="utf-8-sig", newline="") as handle:
