@@ -685,9 +685,17 @@ class TestPodpisIPaginacja(unittest.TestCase):
             self.assertEqual(following[0], previous[1] + 1)
             self.assertLessEqual(previous[1] - previous[0], 30 * 86_400_000)
 
-    def test_kursor_paginacji(self):
-        rows = [{"billId": "50"}, {"billId": "20"}, {"billId": "35"}]
-        self.assertEqual(BitgetClient._next_cursor(rows, "billId"), "20")
+    def test_kursor_wskazuje_ostatni_rekord(self):
+        """Nie min() ani max() - kursor to "dalej od tego, co widziałem"."""
+        malejaco = [{"billId": "50"}, {"billId": "35"}, {"billId": "20"}]
+        self.assertEqual(BitgetClient._next_cursor(malejaco, "billId"), "20")
+
+        rosnaco = [{"billId": "20"}, {"billId": "35"}, {"billId": "50"}]
+        self.assertEqual(BitgetClient._next_cursor(rosnaco, "billId"), "50")
+
+        # Puste pole na końcu nie może zepsuć kursora.
+        z_dziura = [{"billId": "20"}, {"billId": "35"}, {"billId": ""}]
+        self.assertEqual(BitgetClient._next_cursor(z_dziura, "billId"), "35")
 
 
 class TestLimitowZapytan(unittest.TestCase):
@@ -972,6 +980,68 @@ class TestPostepuWLogu(unittest.TestCase):
         # Każda linia mówi który okres z ilu i jakich dat dotyczy.
         self.assertTrue(any("Rejestr spot: pobieram okres 1/" in line for line in postep))
         self.assertTrue(any("→" in line for line in postep))
+
+
+class TestPetliStronicowania(unittest.TestCase):
+    """Rejestr podatkowy zwraca rekordy ROSNĄCO i przesuwa kursor po ostatnim.
+
+    Branie min() ze strony powodowało przesuwanie się o jeden rekord na stronę:
+    500 rekordów w okresie dawało 500 stron po 500 wierszy, czyli ćwierć miliona
+    zdublowanych wpisów zamiast pięciuset.
+    """
+
+    class RosnacyAPI(BitgetClient):
+        """Odwzorowuje zachowanie /api/v2/tax/spot-record."""
+
+        def __init__(self, cfg, records):
+            super().__init__(cfg)
+            self.records = records
+            self.calls = 0
+
+        def request(self, method, path, params=None, auth=True):
+            self.calls += 1
+            params = params or {}
+            limit = int(params.get("limit", 20))
+            after = params.get("idLessThan")
+            rows = self.records
+            if after is not None:
+                rows = [r for r in rows if int(r["id"]) > int(after)]
+            return rows[:limit]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = make_config(Path(self.tmp.name))
+        self.cfg.requests_per_second = 0
+        self.records = [{"id": str(1000 + i), "coin": "USDT"} for i in range(250)]
+
+    def test_kazdy_rekord_dokladnie_raz(self):
+        client = self.RosnacyAPI(self.cfg, self.records)
+        zebrane = list(client.paginate("/api/v2/tax/spot-record", {}, limit=50))
+
+        self.assertEqual(len(zebrane), 250, "żaden rekord nie może się zdublować")
+        self.assertEqual(len({r["id"] for r in zebrane}), 250)
+        # 250 rekordów po 50 na stronę to 5 stron plus jedna pusta domykająca.
+        self.assertLessEqual(client.calls, 7, f"za dużo zapytań: {client.calls}")
+
+    def test_api_ignorujace_kursor_nie_zapetla(self):
+        """Gdyby API oddawało w kółko tę samą stronę, przerywamy po pierwszej."""
+
+        class UpartyAPI(BitgetClient):
+            def __init__(self, cfg, records):
+                super().__init__(cfg)
+                self.records = records
+                self.calls = 0
+
+            def request(self, method, path, params=None, auth=True):
+                self.calls += 1
+                return self.records[: int((params or {}).get("limit", 20))]
+
+        client = UpartyAPI(self.cfg, self.records)
+        zebrane = list(client.paginate("/api/v2/tax/spot-record", {}, limit=50))
+
+        self.assertEqual(len(zebrane), 50, "duplikaty nie mogą trafić do wyniku")
+        self.assertLessEqual(client.calls, 3)
 
 
 class TestDodatkowePrzeplywy(unittest.TestCase):

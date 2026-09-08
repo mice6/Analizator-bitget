@@ -434,6 +434,7 @@ class BitgetClient:
         base["limit"] = page_size
         cursor: Optional[str] = None
         seen_cursors = set()
+        seen_records = set()
 
         for page in range(max_pages):
             call_params = dict(base)
@@ -442,12 +443,34 @@ class BitgetClient:
             rows = extract_list(self.request("GET", path, call_params))
             if not rows:
                 return
+
+            field = cursor_field or self._detect_cursor_field(rows[0])
+
+            # Zabezpieczenie niezależne od kursora: gdyby API zwróciło te same
+            # rekordy jeszcze raz, nie wolno ich policzyć podwójnie.
+            fresh = []
             for row in rows:
+                marker = str(row.get(field)) if field else None
+                if marker and marker in seen_records:
+                    continue
+                if marker:
+                    seen_records.add(marker)
+                fresh.append(row)
+
+            if not fresh:
+                log.warning(
+                    "%s: strona %d nie przyniosła nowych rekordów - przerywam "
+                    "stronicowanie (API zignorowało kursor).",
+                    path,
+                    page + 1,
+                )
+                return
+
+            for row in fresh:
                 yield row
             if len(rows) < page_size:
                 return
 
-            field = cursor_field or self._detect_cursor_field(rows[0])
             if not field:
                 log.warning(
                     "Brak pola kursora w odpowiedzi %s - przerywam stronicowanie "
@@ -620,12 +643,19 @@ class BitgetClient:
 
     @staticmethod
     def _next_cursor(rows: Sequence[dict], field: str) -> Optional[str]:
-        values = [str(row.get(field)) for row in rows if row.get(field) not in (None, "")]
-        if not values:
-            return None
-        if all(value.isdigit() for value in values):
-            return str(min(int(value) for value in values))
-        return values[-1]
+        """Kursor na kolejną stronę: identyfikator OSTATNIEGO rekordu.
+
+        Nie min() ani max(): część endpointów zwraca rekordy rosnąco, część
+        malejąco, a semantyka kursora w obu wypadkach brzmi "dalej od tego,
+        który właśnie widziałem". Branie min() na endpoincie zwracającym
+        rosnąco przesuwa kursor o jeden rekord na stronę zamiast o całą stronę,
+        przez co te same dane wracają setki razy.
+        """
+        for row in reversed(rows):
+            value = row.get(field)
+            if value not in (None, ""):
+                return str(value)
+        return None
 
 
 def dedupe(rows: Iterable[dict], *keys: str) -> List[dict]:

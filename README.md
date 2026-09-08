@@ -243,6 +243,12 @@ okna i tak nie mają szans, a każde kosztowałoby zapytanie. Jeśli realna gran
 retencji okaże się węższa, niż zakłada skrypt, najnowsze okno jest automatycznie
 zawężane aż API je przyjmie.
 
+Kursor kolejnej strony to identyfikator **ostatniego** rekordu, a nie najmniejszy
+czy największy: część endpointów zwraca dane rosnąco, część malejąco, a semantyka
+w obu wypadkach brzmi „dalej od tego, który właśnie widziałem". Niezależnie od
+kursora prowadzona jest lista już pobranych identyfikatorów — strona bez nowych
+rekordów kończy stronicowanie, więc żadne dane nie mogą zostać policzone dwa razy.
+
 Błąd jednego okna **nigdy** nie unieważnia danych pobranych z okien nowszych —
 zamiast tego trafia do ostrzeżeń i do tabeli pokrycia. Każde okno jest
 stronicowane kursorem `idLessThan`, a powtórzenia na styku okien odfiltrowywane
