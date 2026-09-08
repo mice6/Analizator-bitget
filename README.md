@@ -417,7 +417,22 @@ Wzór pliku: `przyklad_dodatkowe_przeplywy.csv`.
 
 ---
 
-## 10. Testy
+## 10. Sprawdzanie surowych danych
+
+Gdy jakaś liczba w raporcie wygląda podejrzanie, `diagnostyka.py` pobiera
+**jedną stronę** wskazanego rejestru i pokazuje surowe pola z API — bez ruszania
+limitów zapytań i pamięci podręcznej:
+
+```bash
+python3 diagnostyka.py 2024-11                      # rejestr spot
+python3 diagnostyka.py 2024-11 --endpoint futures
+python3 diagnostyka.py 2024-11 --coin USDT --limit 40
+```
+
+Wypisuje nazwy pól, surowe rekordy i podsumowanie po typie operacji — na tej
+podstawie da się rozstrzygnąć, czy `amount` oznacza zmianę salda, czy wolumen.
+
+## 11. Testy
 
 Wszystko jest pokryte testami offline (bez kontaktu z API Bitget):
 
@@ -438,11 +453,12 @@ analizy uruchomionej z panelu.
 
 ---
 
-## 11. Struktura projektu
+## 12. Struktura projektu
 
 ```
 panel.py                     # panel web (zalecane wejście)
 analizuj.py                  # CLI
+diagnostyka.py               # podgląd surowych rekordów z API
 bitget_analyzer/
 ├── config.py                # .env, argumenty, zakres dat
 ├── secrets_store.py         # szyfrowanie i przechowywanie kluczy API
