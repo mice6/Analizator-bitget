@@ -71,9 +71,18 @@ SPOT_TYPE_KEYWORDS = (
     ("redemption", CAT_TRANSFER),
     ("principal", CAT_TRANSFER),
     ("stake", CAT_TRANSFER),
+    # financial_lock_out / financial_lock_in: kapitał wchodzi do produktu Earn
+    # i z niego wraca. To przesunięcie środków, a nie zysk - bez tego wpłata
+    # do Earn pokazywała się jako ujemne odsetki równe całej kwocie.
+    ("lock", CAT_TRANSFER),
     ("deposit", CAT_DEPOSIT),
     ("withdraw", CAT_WITHDRAW),
     ("transfer", CAT_TRANSFER),
+    # Opłata dla tradera przy copy tradingu - koszt, nie noga transakcji.
+    # Musi wyprzedzić słowo "trade", inaczej wpadłaby do wyniku handlu i tam
+    # przepadła, bo silnik kosztu nabycia pomija nogi w walucie kwotowanej.
+    ("copy trade", CAT_OTHER),
+    ("copytrade", CAT_OTHER),
     ("buy", CAT_TRADE),
     ("sell", CAT_TRADE),
     ("trade", CAT_TRADE),
@@ -82,7 +91,6 @@ SPOT_TYPE_KEYWORDS = (
     ("interest", CAT_EARN),
     ("saving", CAT_EARN),
     ("earn", CAT_EARN),
-    ("financial", CAT_EARN),
     ("staking", CAT_EARN),
     ("launchpool", CAT_EARN),
     ("rebate", CAT_REWARD),

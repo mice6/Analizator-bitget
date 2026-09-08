@@ -438,6 +438,44 @@ class TestKlasyfikacjiEarn(unittest.TestCase):
         self.assertEqual(classify_spot_tax("Interest"), "earn")
         self.assertEqual(classify_spot_tax("Savings interest"), "earn")
 
+    def test_prawdziwe_nazwy_z_api(self):
+        """Nazwy odczytane z realnego konta, nie zgadywane."""
+        # Kapitał wchodzący do produktu Earn i z niego wracający.
+        self.assertEqual(classify_spot_tax("financial_lock_out"), "transfer")
+        self.assertEqual(classify_spot_tax("financial_lock_in"), "transfer")
+        # Faktyczne odsetki dopisywane co godzinę.
+        self.assertEqual(classify_spot_tax("batch_interest_user_in"), "earn")
+        self.assertEqual(classify_spot_tax("Deposit"), "deposit")
+        self.assertEqual(classify_spot_tax("Buy"), "trade")
+        self.assertEqual(classify_spot_tax("Sell"), "trade")
+        self.assertEqual(classify_spot_tax("Copy Trade expense"), "other")
+        self.assertEqual(classify_spot_tax("Transaction fee deduct"), "other")
+
+    def test_wplata_do_earn_nie_jest_ujemna_odsetka(self):
+        """Regresja: -263 USDC w pozycji 'odsetki' przy wpłacie 263 do Earn."""
+        from bitget_analyzer.model import CAT_EARN, LedgerEntry
+
+        data = Dataset()
+        for tax_type, amount in (
+            ("financial_lock_out", -263.20486986),
+            ("batch_interest_user_in", 0.05344425),
+        ):
+            data.spot_ledger.append(
+                LedgerEntry(
+                    ts=days_ago(40), account="spot", coin="USDC", amount=amount,
+                    category=classify_spot_tax(tax_type), business_type=tax_type,
+                    entry_id=tax_type,
+                )
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_config(Path(tmp))
+            analysis = Analyzer(data, PriceBook(FakeClient(cfg))).build()
+
+        self.assertAlmostEqual(analysis.earn_income_total, 0.05344425, places=6)
+        self.assertGreater(analysis.earn_income_total, 0, "odsetki nie bywają ujemne")
+        zablokowane = [e for e in data.spot_ledger if e.category != CAT_EARN]
+        self.assertEqual(len(zablokowane), 1)
+
 
 class TestFuturesZPozycji(unittest.TestCase):
     """Gdy księga futures milczy, wynik liczymy z zamkniętych pozycji."""
