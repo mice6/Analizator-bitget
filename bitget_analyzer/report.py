@@ -394,8 +394,8 @@ class Reporter:
 
         written.append(
             self._write(
-                out_dir / "spot_ranking_strat.csv",
-                ["moneta", "saldo_netto_usdt", "prowizje_usdt", "operacji", "wpisow"],
+                out_dir / "spot_przeplyw_monet.csv",
+                ["moneta", "przeplyw_netto_usdt", "prowizje_usdt", "operacji", "wpisow"],
                 self._coin_ranking(),
             )
         )
@@ -415,7 +415,13 @@ class Reporter:
         return [path for path in written if path]
 
     def _coin_ranking(self) -> List[Sequence]:
-        """Które monety zjadły najwięcej - saldo netto w USDT, najgorsze na górze."""
+        """Przepływ netto monet w USDT - ile czego wpłynęło i wypłynęło.
+
+        UWAGA: to NIE jest ranking strat. Wartość ujemna znaczy, że monety
+        ubyło (sprzedana, wymieniona), dodatnia - że przybyło. Sprzedaż nie
+        jest stratą. Zysk i stratę pokazuje spot_wynik_wg_pary.csv, bo tam
+        znany jest koszt nabycia.
+        """
         netto: dict = {}
         for entry in self.data.spot_ledger:
             if entry.category not in (CAT_TRADE, CAT_OTHER):

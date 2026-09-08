@@ -356,11 +356,11 @@ starszej historii i wynik jest niepełny — patrz punkt 7 niżej.
 | `miesiace.csv` | rozbicie miesiąc po miesiącu |
 | `przeplywy_zewnetrzne.csv` | każda wpłata i wypłata z kursem użytym do wyceny |
 | `transfery_wewnetrzne.csv` | transfery między kontami |
-| `spot_wynik_wg_pary.csv` | zrealizowany P&L, prowizje i obroty per para |
+| `spot_wynik_wg_pary.csv` | **zrealizowany zysk i strata per para** — tu jest odpowiedź na „co zjadło pieniądze" |
 | `spot_transakcje_zrealizowane.csv` | każde zamknięcie pozycji spot z kosztem i przychodem |
 | `ksiega_spot.csv`, `ksiega_futures.csv` | księgi rachunków; kolumna `okres` to **miesiąc** dla wierszy zagregowanych, pełna data dla pojedynczych operacji; `kwota_usdt` przelicza ilość tokenów na wartość |
 | `saldo_biezace.csv` | aktualne salda per konto i moneta — **sumuje się do wyceny portfela**; konta bez rozbicia na monety (boty, margin) mają wiersz zbiorczy |
-| `spot_ranking_strat.csv` | saldo netto w USDT per moneta, najgorsze na górze |
+| `spot_przeplyw_monet.csv` | przepływ netto monet w USDT — ujemne znaczy „ubyło", nie „strata" |
 | `price_cache.json` | cache kursów dziennych (przyspiesza kolejne uruchomienia) |
 
 ---
