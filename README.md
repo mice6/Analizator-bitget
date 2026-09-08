@@ -172,6 +172,56 @@ Najważniejsze opcje:
 
 ---
 
+## 4b. Dzienny snapshot z crona
+
+Rekonstrukcja historii sięga tam, gdzie sięga pamięć API — około dwóch lat, a
+przy zleceniach botów z lukami (patrz sekcja 9). Snapshot omija ten problem:
+raz dziennie zapisuje to, co dziś jest pewne — ile kapitału weszło z zewnątrz
+i ile warte są aktywa. Po miesiącu masz krzywą kapitału, która odpowiada na
+pytanie „czy konto zarabia" bez żadnego odtwarzania przeszłości.
+
+```bash
+# jeden wiersz dopisany do raport/snapshoty.csv
+python3 snapshot.py
+
+# własna lokalizacja pliku, bez wypisywania podsumowania (tryb cronowy)
+python3 snapshot.py --plik /home/ubuntu/raport/snapshoty.csv --cicho
+```
+
+Wpis do crona (`crontab -e`), codziennie o 23:50 czasu serwera:
+
+```
+50 23 * * * cd /home/ubuntu/Analizator-bitget && ./.venv/bin/python snapshot.py --cicho >> raport/snapshot.log 2>&1
+```
+
+Snapshot pobiera tylko kursy, wpłaty/wypłaty (razem z P2P) i aktualną wycenę —
+rejestry spot/futures i pozycje są pomijane, więc przebieg trwa kilkadziesiąt
+sekund i nie zbliża się do limitu 1 żądania na sekundę, który spowalnia pełną
+analizę. Równoległe uruchomienia są blokowane plikiem `raport/.snapshot.lock`:
+jeśli poprzedni przebieg jeszcze trwa, kolejny kończy się bez zapisu.
+
+Kolumny `snapshoty.csv`:
+
+| Kolumna | Znaczenie |
+|---|---|
+| `data` | moment pomiaru (UTC) |
+| `kapital_wplacony`, `w_tym_p2p` | kapitał z zewnątrz, całe życie konta |
+| `kapital_wyplacony`, `kapital_netto` | wypłacone i saldo wpłat minus wypłaty |
+| `wycena_aktywow` | suma wszystkich kont wg `all-account-balance` |
+| `wynik`, `roi_proc` | wycena − kapitał netto, oraz to samo w procentach |
+| `zmiana_wyceny`, `zmiana_wyniku` | różnica względem poprzedniego wiersza |
+| `dni_od_poprzedniego` | odstęp pomiaru — cron potrafi nie odpalić |
+| `salda_kont` | rozbicie wyceny na konta (`spot=…\|futures=…`) |
+| `uwagi` | to, co się nie pobrało; pusta kolumna = komplet danych |
+
+Dwa wiersze różniące się o dzień i o kilka złotych to szum. Sens ma dopiero
+kilka tygodni: jeśli `wynik` systematycznie spada przy stałym `kapital_netto`,
+konto traci — niezależnie od tego, co pokazują ROI poszczególnych botów.
+`zmiana_wyniku` różna od `zmiana_wyceny` znaczy, że w międzyczasie doszła
+wpłata albo wypłata.
+
+---
+
 ## 5. Co skrypt pobiera
 
 | Dane | Endpoint API v2 | Jak daleko wstecz |
@@ -361,6 +411,7 @@ starszej historii i wynik jest niepełny — patrz punkt 7 niżej.
 | `ksiega_spot.csv`, `ksiega_futures.csv` | księgi rachunków; kolumna `okres` to **miesiąc** dla wierszy zagregowanych, pełna data dla pojedynczych operacji; `kwota_usdt` przelicza ilość tokenów na wartość |
 | `saldo_biezace.csv` | aktualne salda per konto i moneta — **sumuje się do wyceny portfela**; konta bez rozbicia na monety (boty, margin) mają wiersz zbiorczy |
 | `spot_przeplyw_monet.csv` | przepływ netto monet w USDT — ujemne znaczy „ubyło", nie „strata" |
+| `snapshoty.csv` | dzienne pomiary z crona — krzywa kapitału (sekcja 4b) |
 | `price_cache.json` | cache kursów dziennych (przyspiesza kolejne uruchomienia) |
 
 ---
@@ -464,6 +515,7 @@ analizy uruchomionej z panelu.
 ```
 panel.py                     # panel web (zalecane wejście)
 analizuj.py                  # CLI
+snapshot.py                  # dzienny snapshot do crona
 diagnostyka.py               # podgląd surowych rekordów z API
 bitget_analyzer/
 ├── config.py                # .env, argumenty, zakres dat
@@ -479,6 +531,7 @@ bitget_analyzer/
 ├── valuation.py             # aktualna wycena portfela
 ├── pipeline.py              # wspólna ścieżka pobierania (CLI + panel)
 ├── analysis.py              # P&L, bilans miesięczny
+├── snapshot.py              # dzienny wiersz stanu konta (cron)
 ├── report.py                # konsola + CSV/JSON
 └── webapp/
     ├── server.py            # serwer HTTP (stdlib), token, nagłówki

@@ -26,6 +26,7 @@ from bitget_analyzer.model import Dataset
 from bitget_analyzer.pipeline import collect
 from bitget_analyzer.prices import PriceBook
 from bitget_analyzer.report import Reporter
+from bitget_analyzer import snapshot
 from bitget_analyzer.tax import classify_spot_tax, synthesize_fills
 
 NOW = datetime.now(timezone.utc)
@@ -1310,3 +1311,98 @@ class TestDiagnostykiAgregacji(unittest.TestCase):
             zapisane = _json.loads(Path(path).read_text(encoding="utf-8"))
             self.assertEqual(zapisane["rekordow_lacznie"], 10)
             self.assertEqual(len(zapisane["rekordy"]), 10)
+
+
+class TestSnapshot(unittest.TestCase):
+    """Dzienny snapshot: dopisywanie wierszy, różnice, ochrona cudzych plików."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.cfg = make_config(self.dir)
+        self.path = self.dir / "snapshoty.csv"
+
+    @staticmethod
+    def _row(day: str, equity: float, pnl: float, deposits: float = 1000.0) -> dict:
+        return {
+            "ts": 0,
+            "data": day,
+            "kapital_wplacony": deposits,
+            "w_tym_p2p": 400.0,
+            "kapital_wyplacony": 0.0,
+            "kapital_netto": deposits,
+            "wycena_aktywow": equity,
+            "wynik": pnl,
+            "roi_proc": pnl / deposits * 100,
+            "salda_kont": "spot=10.00|futures=5.00",
+            "uwagi": "",
+        }
+
+    def test_pierwszy_zapis_tworzy_naglowek(self):
+        snapshot.append(self.path, self._row("2026-01-01 23:50", 990.0, -10.0), self.cfg)
+        rows = snapshot.read_rows(self.path, self.cfg.csv_sep)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["wynik"], "-10,00")
+        # Bez poprzedniego wiersza nie ma z czym porównywać.
+        self.assertEqual(rows[0]["zmiana_wyceny"], "")
+
+    def test_kolejny_zapis_liczy_roznice(self):
+        snapshot.append(self.path, self._row("2026-01-01 23:50", 990.0, -10.0), self.cfg)
+        snapshot.append(self.path, self._row("2026-01-03 23:50", 1015.5, 15.5), self.cfg)
+        rows = snapshot.read_rows(self.path, self.cfg.csv_sep)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[1]["zmiana_wyceny"], "25,50")
+        self.assertEqual(rows[1]["zmiana_wyniku"], "25,50")
+        self.assertEqual(rows[1]["dni_od_poprzedniego"], "2,00")
+
+    def test_bom_tylko_na_poczatku_pliku(self):
+        snapshot.append(self.path, self._row("2026-01-01 23:50", 990.0, -10.0), self.cfg)
+        snapshot.append(self.path, self._row("2026-01-02 23:50", 995.0, -5.0), self.cfg)
+        raw = self.path.read_bytes()
+        self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
+        self.assertEqual(raw.count(b"\xef\xbb\xbf"), 1)
+
+    def test_nie_dopisuje_do_cudzego_pliku(self):
+        obcy = self.dir / "podsumowanie.csv"
+        obcy.write_text("pozycja;wartosc\nWynik;-6,35\n", encoding="utf-8")
+        with self.assertRaises(snapshot.SnapshotError):
+            snapshot.append(obcy, self._row("2026-01-01 23:50", 990.0, -10.0), self.cfg)
+        self.assertIn("Wynik;-6,35", obcy.read_text(encoding="utf-8"))
+
+    def test_snapshot_pomija_ciezkie_moduly(self):
+        cfg = make_config(self.dir)
+        cfg.skip = list(snapshot.SNAPSHOT_SKIP)
+        for module in ("spot", "futures", "positions", "rejestry"):
+            self.assertFalse(cfg.enabled(module))
+        # To, na czym stoi wynik całkowity, musi zostać włączone.
+        for module in ("prices", "wallet", "equity"):
+            self.assertTrue(cfg.enabled(module))
+
+    def test_wiersz_z_prawdziwego_przebiegu(self):
+        cfg = make_config(self.dir)
+        cfg.skip = list(snapshot.SNAPSHOT_SKIP)
+        client = FakeClient(cfg)
+        prices = PriceBook(client)
+        data = collect(cfg, client, prices)
+        analysis = Analyzer(data, prices).build()
+
+        row = {
+            "ts": 0,
+            "data": "2026-01-01 23:50",
+            "kapital_wplacony": analysis.deposits_total,
+            "w_tym_p2p": 0.0,
+            "kapital_wyplacony": analysis.withdrawals_total,
+            "kapital_netto": analysis.deposits_total - analysis.withdrawals_total,
+            "wycena_aktywow": analysis.equity_now,
+            "wynik": analysis.real_pnl,
+            "roi_proc": None if analysis.roi is None else analysis.roi * 100,
+            "salda_kont": "",
+            "uwagi": "",
+        }
+        snapshot.append(self.path, row, cfg)
+        zapisane = snapshot.read_rows(self.path, cfg.csv_sep)[0]
+        wynik = float(zapisane["wynik"].replace(",", "."))
+        wycena = float(zapisane["wycena_aktywow"].replace(",", "."))
+        self.assertAlmostEqual(wycena, analysis.equity_now, places=2)
+        self.assertAlmostEqual(wynik, analysis.real_pnl, places=2)

@@ -213,6 +213,44 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 
 ---
 
+## 10. Dzienny snapshot z crona
+
+Pełna analiza odtwarza przeszłość z rejestrów i trwa długo. Snapshot robi coś
+innego: raz dziennie zapisuje jeden wiersz — kapitał z zewnątrz, wycenę aktywów
+i wynik. Po miesiącu masz krzywą kapitału, której nie trzeba z niczego
+rekonstruować.
+
+Najpierw sprawdź ręcznie, że działa (klucze muszą być już zapisane, punkt 7.1):
+
+```bash
+cd ~/Analizator-bitget
+source .venv/bin/activate
+python3 snapshot.py
+```
+
+Powinno wypisać stan konta i „Dopisane do: raport/snapshoty.csv". Wtedy dopisz
+wpis do crona — `crontab -e`, a na końcu pliku:
+
+```
+50 23 * * * cd /home/ubuntu/Analizator-bitget && ./.venv/bin/python snapshot.py --cicho >> raport/snapshot.log 2>&1
+```
+
+Ścieżkę `/home/ubuntu/Analizator-bitget` zamień na wynik `pwd`. W cronie trzeba
+podać pełną ścieżkę do Pythona z venv — `source` tam nie zadziała.
+
+Sprawdzenie po kilku dniach:
+
+```bash
+cat ~/Analizator-bitget/raport/snapshoty.csv
+tail -20 ~/Analizator-bitget/raport/snapshot.log
+```
+
+Jeśli w logu nic nie ma, cron nie odpalił — sprawdź `grep CRON /var/log/syslog`
+(Ubuntu) albo `journalctl -u crond` (Oracle Linux). Kolumna `dni_od_poprzedniego`
+w CSV od razu pokazuje pominięte dni.
+
+---
+
 ## Najczęstsze problemy
 
 | Objaw | Przyczyna i rozwiązanie |
@@ -228,4 +266,5 @@ scp -r mice66:~/Analizator-bitget/raport ./raport-bitget
 | `Port 8770 jest już zajęty` | Panel działa w innym oknie: `pkill -f "python3 panel.py"`, albo wystartuj na innym porcie i popraw tunel |
 | `git pull` mówi „Already up to date", a poprawek nie ma | `git fetch origin && git reset --hard origin/claude/bitget-profitability-analyzer-xftfmy` |
 | W pokryciu danych „limit historii API" | Normalne — Bitget nie oddaje danych sprzed ~2 lat. Brakujące wpłaty dopisz ręcznie (README, punkt 8) |
+| Snapshot: „Poprzedni snapshot jeszcze się liczy” | Poprzedni przebieg nie skończył się przed kolejnym. Jednorazowo normalne; jeśli powtarza się codziennie, sprawdź `pgrep -af snapshot.py` i dopiero wtedy usuń `raport/.snapshot.lock` |
 | „odbija limitem mimo 4 prób" na `tax/*` | Wyczerpana pula zapytań do rejestrów. Odczekaj kilkanaście minut; już pobrane okresy są w pamięci podręcznej i nie zostaną pobrane ponownie |
